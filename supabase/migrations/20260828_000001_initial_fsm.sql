@@ -87,6 +87,9 @@ begin
 end $$;
 
 alter table public.profiles enable row level security; alter table public.clients enable row level security; alter table public.materials enable row level security; alter table public.work_orders enable row level security; alter table public.work_order_status_history enable row level security; alter table public.location_records enable row level security; alter table public.evidences enable row level security; alter table public.work_order_materials enable row level security; alter table public.customer_signatures enable row level security; alter table public.material_predictions enable row level security; alter table public.audit_logs enable row level security;
+grant usage on schema public to authenticated;
+grant select, insert, update, delete on public.profiles, public.clients, public.materials, public.work_orders, public.work_order_status_history, public.location_records, public.evidences, public.work_order_materials, public.customer_signatures, public.material_predictions, public.audit_logs to authenticated;
+grant usage, select on sequence public.work_order_code_seq to authenticated;
 create policy "profiles readable by authenticated" on public.profiles for select to authenticated using (true);
 create policy "managers manage profiles" on public.profiles for all to authenticated using (public.is_manager()) with check (public.is_manager());
 create policy "managers manage clients" on public.clients for all to authenticated using (public.is_manager()) with check (public.is_manager());
