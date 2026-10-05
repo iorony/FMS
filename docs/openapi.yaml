@@ -39,7 +39,7 @@ paths:
                         address: { type: string }
                         latitude: { type: number }
                         longitude: { type: number }
-                        source: { type: string, enum: [Sitio guardado, OpenStreetMap, Google Maps] }
+                        source: { type: string, enum: [Sitio guardado, OpenStreetMap] }
         '401': { description: Sesión no válida }
   /admin/users:
     post:

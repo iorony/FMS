@@ -5,7 +5,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 type LeafletMap = { setView: (center: [number, number], zoom: number) => LeafletMap; on: (event: string, callback: (event: { latlng: { lat: number; lng: number } }) => void) => LeafletMap; remove: () => void };
 type LeafletMarker = { setLatLng: (point: [number, number]) => LeafletMarker; addTo: (map: LeafletMap) => LeafletMarker };
 type Leaflet = { map: (element: HTMLElement) => LeafletMap; tileLayer: (url: string, options: object) => { addTo: (map: LeafletMap) => unknown }; marker: (point: [number, number]) => LeafletMarker };
-type SearchResult = { id: string; label: string; address: string; latitude: number; longitude: number; source: "Sitio guardado" | "Google Maps" | "OpenStreetMap" };
+type SearchResult = { id: string; label: string; address: string; latitude: number; longitude: number; source: "Sitio guardado" | "OpenStreetMap" };
 
 declare global { interface Window { L?: Leaflet } }
 

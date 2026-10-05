@@ -25,7 +25,6 @@ outputs/
 
 # Local working documentation and generated deliverables
 MiDocumentacion/
-mobile/
 
 # Logs and operating-system files
 *.log

@@ -1,0 +1,28 @@
+{
+  "expo": {
+    "name": "Plus Service FMS",
+    "slug": "plus-service-fms",
+    "version": "0.1.0",
+    "scheme": "plusservicefms",
+    "icon": "./assets/plus-service-logo.png",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "android": {
+      "package": "gt.plusservice.fms",
+      "permissions": ["ACCESS_COARSE_LOCATION", "ACCESS_FINE_LOCATION"]
+    },
+    "ios": {
+      "bundleIdentifier": "gt.plusservice.fms",
+      "supportsTablet": true,
+      "infoPlist": {
+        "NSLocationWhenInUseUsageDescription": "Plus Service FMS usa tu ubicación para registrar el inicio y cierre de una orden.",
+        "NSPhotoLibraryUsageDescription": "Plus Service FMS usa la galería para adjuntar evidencia de la orden.",
+        "NSCameraUsageDescription": "Plus Service FMS usa la cámara para capturar evidencia de la orden."
+      }
+    },
+    "plugins": [
+      ["expo-location", { "locationWhenInUsePermission": "Plus Service FMS usa tu ubicación para registrar el inicio y cierre de una orden." }],
+      ["expo-image-picker", { "photosPermission": "Plus Service FMS usa la galería para adjuntar evidencia de la orden.", "cameraPermission": "Plus Service FMS usa la cámara para capturar evidencia de la orden." }]
+    ]
+  }
+}

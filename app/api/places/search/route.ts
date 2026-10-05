@@ -8,7 +8,7 @@ const PUBLIC_LOOKUP_INTERVAL_MS = 1_100;
 
 type PlaceResult = {
   id: string; label: string; address: string; latitude: number; longitude: number;
-  source: "Sitio guardado" | "OpenStreetMap" | "Google Maps";
+  source: "Sitio guardado" | "OpenStreetMap";
 };
 
 const cache = new Map<string, { expiresAt: number; results: PlaceResult[] }>();
@@ -85,23 +85,6 @@ async function searchOpenStreetMapBusinesses(term: string): Promise<PlaceResult[
   });
 }
 
-async function searchGooglePlaces(term: string): Promise<PlaceResult[]> {
-  const apiKey = process.env.GOOGLE_MAPS_API_KEY;
-  if (!apiKey) return [];
-  const response = await fetch("https://places.googleapis.com/v1/places:searchText", {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "X-Goog-Api-Key": apiKey, "X-Goog-FieldMask": "places.displayName,places.formattedAddress,places.location" },
-    body: JSON.stringify({ textQuery: term, languageCode: "es", regionCode: "GT", locationBias: { circle: { center: GUATEMALA_CITY, radius: 50_000 } } }), cache: "no-store",
-  });
-  if (!response.ok) return [];
-  const payload = await response.json() as { places?: { displayName?: { text?: string }; formattedAddress?: string; location?: { latitude?: number; longitude?: number } }[] };
-  return (payload.places ?? []).flatMap((place, index) => {
-    const latitude = place.location?.latitude; const longitude = place.location?.longitude;
-    if (typeof latitude !== "number" || typeof longitude !== "number") return [];
-    return [{ id: `google-${index}-${latitude}-${longitude}`, label: place.displayName?.text ?? "Lugar", address: place.formattedAddress ?? "Guatemala", latitude, longitude, source: "Google Maps" as const }];
-  });
-}
-
 export async function GET(request: NextRequest) {
   const bearer = request.headers.get("authorization")?.match(/^Bearer\s+(.+)$/i)?.[1];
   const cookieClient = await createClient();
@@ -118,8 +101,7 @@ export async function GET(request: NextRequest) {
   const key = term.toLocaleLowerCase("es-GT"); const cached = cache.get(key);
   if (cached && cached.expiresAt > Date.now()) return NextResponse.json({ results: cached.results, cached: true });
   const internal = await getInternalPlaces(supabase, term);
-  let external = await searchGooglePlaces(term);
-  if (!external.length) external = await searchOpenStreetMap(term);
+  let external = await searchOpenStreetMap(term);
   if (!external.length) external = await searchOpenStreetMapBusinesses(term);
   const results = unique([...internal, ...external]);
   cache.set(key, { expiresAt: Date.now() + CACHE_TIME_MS, results });
