@@ -1,0 +1,10 @@
+node_modules
+.next
+mobile/node_modules
+mobile/.expo
+.env
+.env.local
+.git
+MiDocumentacion
+outputs
+tmp

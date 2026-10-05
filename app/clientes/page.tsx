@@ -1,6 +1,45 @@
 import { redirect } from "next/navigation";
 import { AppShell } from "@/components/app-shell";
 import { CatalogForm } from "@/components/catalog-form";
+import { CatalogTable } from "@/components/catalog-table";
 import { createClient } from "@/lib/supabase/server";
-export const dynamic="force-dynamic";
-export default async function Clients(){const supabase=await createClient();const {data:{user}}=await supabase.auth.getUser();if(!user)redirect("/login");const [{data:profile},{data:clients}]=await Promise.all([supabase.from("profiles").select("role").eq("id",user.id).single(),supabase.from("clients").select("id,name,contact_name,contact_phone,email,is_active").order("name")]);const canManage=profile?.role==="admin";return <AppShell>{canManage&&<section className="panel"><div className="panel-head"><h2>Registrar cliente</h2></div><div style={{padding:20}}><CatalogForm type="clients"/></div></section>}<section className="panel" style={{marginTop:canManage?20:0}}><div className="panel-head"><h2>Clientes</h2></div><table><thead><tr><th>Cliente</th><th>Contacto</th><th>Teléfono</th><th>Correo</th><th>Estado</th></tr></thead><tbody>{clients?.length?clients.map(c=><tr key={c.id}><td>{c.name}</td><td>{c.contact_name??"—"}</td><td>{c.contact_phone??"—"}</td><td>{c.email??"—"}</td><td>{c.is_active?"Activo":"Inactivo"}</td></tr>):<tr><td colSpan={5}>No hay clientes registrados.</td></tr>}</tbody></table></section></AppShell>}
+
+export const dynamic = "force-dynamic";
+
+export default async function ClientsPage() {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) redirect("/login");
+
+  const [{ data: profile }, { data: clients }] = await Promise.all([
+    supabase.from("profiles").select("role").eq("id", user.id).single(),
+    supabase.from("clients").select("id,name,contact_name,contact_phone,email,address,is_active").order("name"),
+  ]);
+  const canManage = profile?.role === "admin";
+
+  return (
+    <AppShell
+      title="Clientes"
+      description="Empresas y personas para las que se ejecutan instalaciones. Cada orden pertenece a un cliente activo."
+    >
+      <div className="stack">
+        {canManage && (
+          <section className="panel">
+            <div className="panel-head"><h2>Registrar cliente</h2></div>
+            <div className="panel-body"><CatalogForm type="clients" /></div>
+          </section>
+        )}
+
+        <section className="panel">
+          <div className="panel-head">
+            <div>
+              <h2>Catálogo de clientes</h2>
+              <p>{clients?.length ?? 0} registro{(clients?.length ?? 0) === 1 ? "" : "s"}.</p>
+            </div>
+          </div>
+          <CatalogTable type="clients" records={clients ?? []} canManage={canManage} />
+        </section>
+      </div>
+    </AppShell>
+  );
+}

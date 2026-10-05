@@ -1,0 +1,120 @@
+openapi: 3.1.0
+info:
+  title: Plus Service GT BFF
+  version: 1.0.0
+  description: |
+    Contratos de las rutas del servidor Next.js. Las operaciones de dominio se
+    ejecutan mediante Supabase RPC y Row Level Security; no existe una API REST
+    pública para acceder directamente a las tablas.
+servers:
+  - url: /api
+paths:
+  /places/search:
+    get:
+      summary: Busca ubicaciones para programar una orden
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: q
+          in: query
+          required: true
+          schema: { type: string, minLength: 3, maxLength: 80 }
+      responses:
+        '200':
+          description: Sitios guardados y resultados públicos disponibles
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  cached: { type: boolean }
+                  results:
+                    type: array
+                    items:
+                      type: object
+                      required: [id, label, address, latitude, longitude, source]
+                      properties:
+                        id: { type: string }
+                        label: { type: string }
+                        address: { type: string }
+                        latitude: { type: number }
+                        longitude: { type: number }
+                        source: { type: string, enum: [Sitio guardado, OpenStreetMap, Google Maps] }
+        '401': { description: Sesión no válida }
+  /admin/users:
+    post:
+      summary: Administra usuarios desde el panel
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              oneOf:
+                - $ref: '#/components/schemas/InviteUser'
+                - $ref: '#/components/schemas/EditUser'
+                - $ref: '#/components/schemas/ResetPassword'
+      responses:
+        '200': { description: Operación completada }
+        '400': { description: Datos inválidos }
+        '401': { description: Sesión no válida }
+        '403': { description: Operación no autorizada }
+  /ai/classify-evidence:
+    post:
+      summary: Solicita una clasificación asistida de una evidencia
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [evidenceId]
+              properties:
+                evidenceId: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Sugerencia pendiente de revisión humana
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  category: { type: string }
+                  confidence: { type: number, minimum: 0, maximum: 1 }
+        '401': { description: Sesión no válida }
+        '403': { description: Rol no autorizado }
+        '503': { description: IA no configurada }
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  schemas:
+    InviteUser:
+      type: object
+      required: [action, email, fullName, role]
+      properties:
+        action: { const: invite }
+        email: { type: string, format: email }
+        fullName: { type: string, maxLength: 120 }
+        role: { type: string, enum: [admin, coordinator, technician] }
+    EditUser:
+      type: object
+      required: [action, id, fullName, role, isActive]
+      properties:
+        action: { const: edit }
+        id: { type: string, format: uuid }
+        fullName: { type: string, maxLength: 120 }
+        role: { type: string, enum: [admin, coordinator, technician] }
+        isActive: { type: boolean }
+    ResetPassword:
+      type: object
+      required: [action, id, password]
+      properties:
+        action: { const: resetPassword }
+        id: { type: string, format: uuid }
+        password: { type: string, minLength: 8, maxLength: 128 }

@@ -1,11 +1,40 @@
-node_modules
-.next
-.env.local
-.env*.local
+# Local secrets and environment settings
+.env
+.env.*
 !.env.example
-coverage
+!**/.env.example
+
+# Dependencies and framework caches
+node_modules/
+**/node_modules/
+.next/
+**/.next/
+.expo/
+**/.expo/
+.expo-export*/
+**/.expo-export*/
+.vercel/
+
+# Generated build, test and workspace artifacts
+coverage/
+**/coverage/
 *.tsbuildinfo
 _spreadsheet_work/
 tmp/
-MiDocumentacion
-outputs
+outputs/
+
+# Local working documentation and generated deliverables
+MiDocumentacion/
+mobile/
+
+# Logs and operating-system files
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+.DS_Store
+Thumbs.db
+
+# Accidental local diagnostic output
+/t

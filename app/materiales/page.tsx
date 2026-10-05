@@ -1,6 +1,46 @@
 import { redirect } from "next/navigation";
 import { AppShell } from "@/components/app-shell";
 import { CatalogForm } from "@/components/catalog-form";
+import { CatalogTable } from "@/components/catalog-table";
 import { createClient } from "@/lib/supabase/server";
-export const dynamic="force-dynamic";
-export default async function Materials(){const supabase=await createClient();const {data:{user}}=await supabase.auth.getUser();if(!user)redirect("/login");const [{data:profile},{data:materials}]=await Promise.all([supabase.from("profiles").select("role").eq("id",user.id).single(),supabase.from("materials").select("id,sku,name,unit,is_active").order("name")]);const canManage=profile?.role==="admin";return <AppShell>{canManage&&<section className="panel"><div className="panel-head"><h2>Registrar material</h2></div><div style={{padding:20}}><CatalogForm type="materials"/></div></section>}<section className="panel" style={{marginTop:canManage?20:0}}><div className="panel-head"><h2>Catálogo de materiales</h2></div><table><thead><tr><th>SKU</th><th>Material</th><th>Unidad</th><th>Estado</th></tr></thead><tbody>{materials?.length?materials.map(m=><tr key={m.id}><td>{m.sku}</td><td>{m.name}</td><td>{m.unit}</td><td>{m.is_active?"Activo":"Inactivo"}</td></tr>):<tr><td colSpan={4}>No hay materiales registrados.</td></tr>}</tbody></table></section></AppShell>}
+
+export const dynamic = "force-dynamic";
+
+export default async function MaterialsPage() {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) redirect("/login");
+
+  const [{ data: profile }, { data: materials }, { data: materialUsage }] = await Promise.all([
+    supabase.from("profiles").select("role").eq("id", user.id).single(),
+    supabase.from("materials").select("id,sku,name,unit,unit_cost,minimum_quantity,is_active").order("name"),
+    supabase.from("material_client_consumption_summary").select("material_id,client_id,client_name,unit,consumed_quantity,consumed_cost,last_consumed_at").order("last_consumed_at", { ascending: false }),
+  ]);
+  const canManage = profile?.role === "admin";
+
+  return (
+    <AppShell
+      title="Materiales"
+      description="Insumos, costos y mínimos de compra que respaldan el consumo real y las estimaciones."
+    >
+      <div className="stack">
+        {canManage && (
+          <section className="panel">
+            <div className="panel-head"><h2>Agregar material</h2></div>
+            <div className="panel-body"><CatalogForm type="materials" /></div>
+          </section>
+        )}
+
+        <section className="panel">
+          <div className="panel-head">
+            <div>
+              <h2>Catálogo de materiales</h2>
+              <p>{materials?.length ?? 0} insumo{(materials?.length ?? 0) === 1 ? "" : "s"}.</p>
+            </div>
+          </div>
+          <CatalogTable type="materials" records={materials ?? []} canManage={canManage} materialUsage={materialUsage ?? []} />
+        </section>
+      </div>
+    </AppShell>
+  );
+}
