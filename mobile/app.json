@@ -9,7 +9,13 @@
     "userInterfaceStyle": "light",
     "android": {
       "package": "gt.plusservice.fms",
-      "permissions": ["ACCESS_COARSE_LOCATION", "ACCESS_FINE_LOCATION"]
+      "permissions": [
+        "android.permission.ACCESS_COARSE_LOCATION",
+        "android.permission.ACCESS_FINE_LOCATION",
+        "android.permission.ACCESS_COARSE_LOCATION",
+        "android.permission.ACCESS_FINE_LOCATION",
+        "android.permission.RECORD_AUDIO"
+      ]
     },
     "ios": {
       "bundleIdentifier": "gt.plusservice.fms",
@@ -21,8 +27,24 @@
       }
     },
     "plugins": [
-      ["expo-location", { "locationWhenInUsePermission": "Plus Service FMS usa tu ubicación para registrar el inicio y cierre de una orden." }],
-      ["expo-image-picker", { "photosPermission": "Plus Service FMS usa la galería para adjuntar evidencia de la orden.", "cameraPermission": "Plus Service FMS usa la cámara para capturar evidencia de la orden." }]
-    ]
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "Plus Service FMS usa tu ubicación para registrar el inicio y cierre de una orden."
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Plus Service FMS usa la galería para adjuntar evidencia de la orden.",
+          "cameraPermission": "Plus Service FMS usa la cámara para capturar evidencia de la orden."
+        }
+      ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "bd335422-eef5-4037-a541-64f9e9fb40c4"
+      }
+    }
   }
 }
