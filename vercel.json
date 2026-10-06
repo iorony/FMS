@@ -1,0 +1,5 @@
+{
+  "crons": [
+    { "path": "/api/ai/process-evidence-jobs", "schedule": "*/5 * * * *" }
+  ]
+}

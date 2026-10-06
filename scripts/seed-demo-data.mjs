@@ -1,11 +1,13 @@
 /**
  * Carga una colección ficticia e idempotente para presentar Plus Service GT.
  *
- * No crea ni modifica cuentas de acceso. Solo usa los perfiles existentes y
- * reemplaza los registros con código DEMO-2026- para poder ejecutarse varias
- * veces sin duplicar la información.
+ * No crea ni modifica cuentas de acceso. Conserva los perfiles existentes,
+ * elimina todos los datos operativos y deja una colección ficticia completa.
  *
- * Uso: node scripts/seed-demo-data.mjs
+ * Uso habitual: ejecutar primero supabase/reset_demo.sql en el SQL Editor y
+ * después `node scripts/seed-demo-data.mjs --seed-only`.
+ * `--reset-with-service-role` se reserva para proyectos que hayan concedido
+ * permisos de borrado al rol de servicio en todas las tablas operativas.
  */
 import fs from "node:fs";
 import { createClient } from "@supabase/supabase-js";
@@ -92,7 +94,58 @@ async function upload(bucket, path) {
   if (error) throw new Error(`No fue posible cargar ${path}: ${error.message}`);
 }
 
+async function removeBucketContents(bucket, prefix = "") {
+  const { data, error } = await supabase.storage.from(bucket).list(prefix, { limit: 1000 });
+  if (error) throw new Error(`No fue posible listar archivos de ${bucket}: ${error.message}`);
+
+  const files = [];
+  for (const entry of data ?? []) {
+    const path = prefix ? `${prefix}/${entry.name}` : entry.name;
+    if (entry.id) files.push(path);
+    else await removeBucketContents(bucket, path);
+  }
+  if (files.length) await assertOk(supabase.storage.from(bucket).remove(files), `Vaciar archivos de ${bucket}`);
+}
+
+async function deleteAll(table, nonNullColumn = "id") {
+  await assertOk(
+    supabase.from(table).delete().not(nonNullColumn, "is", null),
+    `Limpiar ${table}`,
+  );
+}
+
+async function resetOperationalData() {
+  // Primero se eliminan las dependencias para respetar todas las llaves foráneas.
+  // La bitácora interna no forma parte de la interfaz y el rol de servicio no
+  // dispone de privilegios para vaciarla en este proyecto.
+  await deleteAll("material_predictions");
+  await deleteAll("work_order_timeline_events");
+  await deleteAll("work_order_materials");
+  await deleteAll("customer_signatures");
+  await deleteAll("evidences");
+  await deleteAll("location_records");
+  await deleteAll("work_order_status_history");
+  await deleteAll("work_order_technicians", "work_order_id");
+  await deleteAll("daily_attendance_records");
+  await deleteAll("work_orders");
+  await deleteAll("material_stock_movements");
+  await deleteAll("client_material_assignments");
+  await deleteAll("material_inventory", "material_id");
+  await deleteAll("materials");
+  await deleteAll("clients");
+
+  await removeBucketContents("evidences");
+  await removeBucketContents("signatures");
+}
+
 async function main() {
+  if (process.argv.includes("--storage-only")) {
+    await removeBucketContents("evidences");
+    await removeBucketContents("signatures");
+    console.log("Archivos de evidencias y firmas eliminados.");
+    return;
+  }
+
   const { data: profiles, error: profilesError } = await supabase
     .from("profiles")
     .select("id,full_name,role,is_active")
@@ -107,16 +160,9 @@ async function main() {
   }
   const [techOne, techTwo] = technicians;
 
-  // Solo se eliminan los registros identificados explícitamente como demo.
-  const { data: existingOrders, error: existingError } = await supabase
-    .from("work_orders")
-    .select("id")
-    .like("code", "DEMO-2026-%");
-  if (existingError) throw existingError;
-  const existingIds = (existingOrders ?? []).map((order) => order.id);
-  if (existingIds.length) {
-    await assertOk(supabase.from("work_order_timeline_events").delete().in("work_order_id", existingIds), "Limpiar bitácora demo");
-    await assertOk(supabase.from("work_orders").delete().in("id", existingIds), "Limpiar órdenes demo anteriores");
+  if (process.argv.includes("--reset-with-service-role")) await resetOperationalData();
+  if (!process.argv.includes("--seed-only") && !process.argv.includes("--reset-with-service-role")) {
+    throw new Error("Ejecuta primero supabase/reset_demo.sql y vuelve a intentar con --seed-only.");
   }
 
   await assertOk(supabase.from("clients").upsert(clients, { onConflict: "id" }), "Cargar clientes demo");
@@ -151,7 +197,9 @@ async function main() {
       client_id: clients[spec.client].id,
       assigned_technician_id: spec.tech?.id ?? null,
       created_by: coordinator.id,
-      status: spec.status,
+      // El flujo de negocio exige que toda orden sea creada como borrador.
+      // Al finalizar la carga se aplican los estados previstos para la demo.
+      status: "borrador",
       priority: spec.priority,
       address,
       description: spec.description,

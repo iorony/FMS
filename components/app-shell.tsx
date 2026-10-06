@@ -24,6 +24,7 @@ function navFor(role: string | null): NavItem[] {
     items.push({ href: "/ordenes/nueva", label: "Crear orden", short: "Crear", icon: "nueva", group: "Operación", tab: true });
     items.push({ href: "/reportes", label: "Asistencia y preliquidación", short: "Asistencia", icon: "reportes", group: "Seguimiento", tab: true });
     items.push({ href: "/reportes/ordenes", label: "Reporte de órdenes", short: "Rep. órdenes", icon: "ordenes", group: "Seguimiento" });
+    items.push({ href: "/ia", label: "Calidad de IA", short: "Calidad IA", icon: "resumen", group: "Seguimiento" });
   }
   if (role === "coordinator") {
     items.push({ href: "/usuarios", label: "Acceso de técnicos", short: "Acceso", icon: "usuarios", group: "Administración", tab: true });

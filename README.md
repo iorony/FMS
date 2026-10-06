@@ -30,7 +30,7 @@ Esta decisión reemplaza el backend Django previsto inicialmente porque Vercel +
    ```
 
 4. Copia `.env.example` a `.env.local`, e ingresa URL y Publishable Key del proyecto Supabase. Para invitar usuarios desde el panel, añade también `SUPABASE_SERVICE_ROLE_KEY`; esta clave solo se usa en el servidor y nunca debe publicarse.
-   Para habilitar la clasificación asistida de evidencias, configura además `OPENAI_API_KEY` y `OPENAI_VISION_MODEL` exclusivamente en el servidor. La imagen se comparte con el proveedor de IA solo cuando un administrador o coordinador solicita la clasificación; la sugerencia queda pendiente de revisión humana.
+   Para habilitar las funciones de IA, configura además `OPENAI_API_KEY`, `OPENAI_VISION_MODEL`, `OPENAI_TEXT_MODEL` y `CRON_SECRET` exclusivamente en el servidor. La cola de evidencias se ejecuta cada cinco minutos en Vercel y comparte la fotografía con el proveedor de IA para producir una sugerencia pendiente de revisión humana. `CRON_SECRET` debe ser un secreto aleatorio configurado también en Vercel; la tarea programada lo envía automáticamente. El resumen asistido de cierre se genera solo a petición de administración o coordinación y comparte el expediente de la orden con el proveedor para crear un borrador auditable.
 5. Ejecuta `npm run dev` y abre `http://localhost:3000`.
 
 ## Calidad y contratos
@@ -79,7 +79,7 @@ Desde el detalle de una orden asignada, el técnico asignado puede:
 3. Tomar o cargar evidencias JPEG, PNG o WebP de hasta 10 MB; se almacenan en el bucket privado `evidences`.
 4. Registrar ubicación GPS de cierre. Esto deja la orden `pendiente_de_cierre` para la firma y cierre formal de la Fase III.
 
-Las políticas RLS restringen esas acciones al técnico asignado y dejan a administración/coordinación únicamente la supervisión. Si se configura el proveedor de IA, administración o coordinación puede solicitar una clasificación asistida de una evidencia: se guarda la versión del modelo y su confianza, y el resultado siempre queda pendiente de revisión humana. Sin configuración o cuando el servicio no responde, no se fabrica ninguna clasificación.
+Las políticas RLS restringen esas acciones al técnico asignado y dejan a administración/coordinación únicamente la supervisión. Si se configura el proveedor de IA, cada evidencia ingresa a una cola persistente y se clasifica de forma asíncrona; se guarda la versión del modelo, la versión del prompt y la confianza, y el resultado siempre queda pendiente de revisión humana. Sin configuración o cuando el servicio no responde, no se fabrica ninguna clasificación.
 
 ## Administración de la Fase I
 
@@ -100,7 +100,7 @@ Estas capacidades corresponden a la **Fase I**, no a la ejecución de campo:
 - Un administrador o coordinador realiza el cierre formal solo cuando la orden tiene GPS de inicio/cierre, al menos un material, una evidencia y una firma. La validación ocurre en PostgreSQL, no solo en la pantalla.
 - **Reportes** muestra el consolidado por orden (materiales, evidencias, firma y estado) para roles administrativos.
 - Se registra una bitácora de altas, cambios y cierres de órdenes y firmas en `audit_logs`.
-- Las tablas `material_predictions` y `evidences` conservan modelo, versión, confianza y revisión. Administración y coordinación pueden solicitar la clasificación asistida y confirmar o corregir su resultado; se conserva responsable, fecha y nota de revisión. La estimación de materiales usa una línea base explicable (promedio histórico por prioridad) y exige al menos tres órdenes cerradas comparables; nunca se incorpora como consumo sin aceptación explícita. Las vistas de calidad calculan acuerdo de clasificaciones y error absoluto medio de estimaciones con resultados reales.
+- Las tablas `material_predictions`, `evidences`, `ai_jobs` y `work_order_ai_summaries` conservan modelo, versión, confianza, reintentos y revisión. Administración y coordinación pueden confirmar o corregir resultados; se conserva responsable, fecha y nota de revisión. El resumen de cierre es siempre un borrador. La estimación de materiales usa una línea base explicable (mediana histórica por prioridad, mínimos de compra y costo) y exige al menos tres órdenes cerradas comparables; nunca se incorpora como consumo sin aceptación explícita. Las vistas de calidad calculan acuerdo de clasificaciones y error absoluto medio de estimaciones con resultados reales.
 
 ## Respaldo y publicación
 

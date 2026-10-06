@@ -4,6 +4,7 @@ import { AppShell } from "@/components/app-shell";
 import { FieldExecution } from "@/components/field-execution";
 import { OrderFinalization } from "@/components/order-finalization";
 import { MaterialPrediction } from "@/components/material-prediction";
+import { OrderAiSummary } from "@/components/order-ai-summary";
 import { EmptyState, PriorityTag, StatusBadge, StatusFlow } from "@/components/ui";
 import { createClient } from "@/lib/supabase/server";
 import { formatDateTime, one, relativeDay, statusLabel } from "@/lib/ui";
@@ -190,6 +191,8 @@ export default async function OrderDetail({ params }: { params: Promise<{ id: st
         />
 
         {isManager && <MaterialPrediction orderId={order.id} materials={materials ?? []} />}
+
+        {isManager && <OrderAiSummary orderId={order.id} />}
 
         <section className="panel">
           <div className="panel-head">
