@@ -10,7 +10,7 @@ import { sentenceCase, userErrorMessage } from "@/lib/text";
 type Location = { id: string; record_type: "inicio" | "cierre"; latitude: number; longitude: number; accuracy_meters: number | null; captured_at: string };
 type Evidence = { id: string; storage_path: string; suggested_category: string | null; final_category: string | null; review_status: string; confidence: number | null; created_at: string; reviewed_at?: string | null; review_note?: string | null };
 type Consumption = { id: string; quantity: number; unit: string; unit_cost: number; total_cost: number; note: string | null; materials: { name: string; sku: string } | { name: string; sku: string }[] | null };
-type Material = { id: string; name: string; sku: string; unit: string; unit_cost: number; minimum_quantity: number };
+type Material = { id: string; material_id: string; assigned_quantity: number; consumed_quantity: number; returned_quantity: number; materials: { id: string; name: string; sku: string; unit: string; unit_cost: number; minimum_quantity: number } | null };
 type Feedback = { tone: "success" | "error"; text: string } | null;
 
 type Props = {
@@ -247,7 +247,10 @@ export function FieldExecution({ orderId, status, canExecute, canRegisterProject
 
   const hasStart = locations.some((item) => item.record_type === "inicio");
   const hasEnd = locations.some((item) => item.record_type === "cierre");
-  const activeMaterial = useMemo(() => materials.find((material) => material.id === selectedMaterial), [materials, selectedMaterial]);
+  const canRecord = status === "en_proceso" && hasStart;
+  const activeAssignment = useMemo(() => materials.find((material) => material.id === selectedMaterial), [materials, selectedMaterial]);
+  const activeMaterial = activeAssignment?.materials ?? null;
+  const availableQuantity = activeAssignment ? Number(activeAssignment.assigned_quantity) - Number(activeAssignment.consumed_quantity) - Number(activeAssignment.returned_quantity) : 0;
 
   const notify = (tone: "success" | "error", text: string) => {
     setFeedback({ tone, text });
@@ -291,17 +294,9 @@ export function FieldExecution({ orderId, status, canExecute, canRegisterProject
     }
     setBusy(true);
     try {
-      const supabase = createClient();
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) throw new Error("Tu sesión expiró. Inicia sesión nuevamente.");
-      const { error } = await supabase.from("work_order_materials").insert({
-        work_order_id: orderId,
-        material_id: selectedMaterial,
-        quantity,
-        unit: activeMaterial.unit,
-        unit_cost: activeMaterial.unit_cost,
-        note: sentenceCase(data.get("note")) || null,
-        created_by: user.id,
+      if (quantity > availableQuantity) throw new Error(`La cantidad supera el saldo asignado al cliente (${availableQuantity.toFixed(2)} ${activeMaterial.unit}).`);
+      const { error } = await createClient().rpc("consume_client_material", {
+        p_work_order_id: orderId, p_assignment_id: selectedMaterial, p_quantity: quantity, p_note: sentenceCase(data.get("note")) || null,
       });
       if (error) throw new Error(error.message);
       form.reset();
@@ -430,22 +425,23 @@ export function FieldExecution({ orderId, status, canExecute, canRegisterProject
             <span className="step-tag">2</span>
             <h3>Materiales utilizados</h3>
           </header>
-          <p className="help">Registra el consumo real. Puedes agregar tantos renglones como necesites.</p>
+          <p className="help">Registra el consumo real de material previamente asignado a este cliente.</p>
 
           <form className="inline-form" onSubmit={addMaterial}>
-            <select required value={selectedMaterial} onChange={(event) => setSelectedMaterial(event.target.value)} aria-label="Material">
+            <select required disabled={busy || !canRecord} value={selectedMaterial} onChange={(event) => setSelectedMaterial(event.target.value)} aria-label="Material">
               <option value="">Elige un material</option>
-              {materials.map((material) => (
-                <option key={material.id} value={material.id}>{material.name} ({material.sku})</option>
+              {materials.filter((assignment) => Number(assignment.assigned_quantity) > Number(assignment.consumed_quantity) + Number(assignment.returned_quantity)).map((assignment) => (
+                <option key={assignment.id} value={assignment.id}>{assignment.materials?.name} ({assignment.materials?.sku}) · saldo {(Number(assignment.assigned_quantity) - Number(assignment.consumed_quantity) - Number(assignment.returned_quantity)).toFixed(2)} {assignment.materials?.unit}</option>
               ))}
             </select>
             <input
-              required name="quantity" type="number" inputMode="decimal" min="0.01" step="0.01"
+              required disabled={busy || !canRecord} name="quantity" type="number" inputMode="decimal" min="0.01" step="0.01"
               placeholder={activeMaterial ? `Cantidad en ${activeMaterial.unit}` : "Cantidad"} aria-label="Cantidad"
             />
-            <input name="note" maxLength={300} placeholder="Observación (opcional)" aria-label="Observación" />
-            {activeMaterial && <span className="help">Q {Number(activeMaterial.unit_cost).toFixed(2)} por {activeMaterial.unit} · mínimo de compra: {activeMaterial.minimum_quantity} {activeMaterial.unit}</span>}
-            <button className="btn" disabled={busy || !hasStart}>Agregar material</button>
+            <input disabled={busy || !canRecord} name="note" maxLength={300} placeholder="Observación (opcional)" aria-label="Observación" />
+            {activeMaterial && <span className="help">Saldo asignado: {availableQuantity.toFixed(2)} {activeMaterial.unit} · Q {Number(activeMaterial.unit_cost).toFixed(2)} por {activeMaterial.unit}</span>}
+            <button className="btn" disabled={busy || !canRecord || !selectedMaterial}>Agregar material</button>
+            {hasStart && !canRecord && <span className="help">El consumo se registra mientras la orden está en proceso.</span>}
             {!hasStart && <span className="help">Registra la llegada para habilitar el consumo.</span>}
           </form>
 
@@ -460,9 +456,9 @@ export function FieldExecution({ orderId, status, canExecute, canRegisterProject
           <p className="help">Las fotos se guardan en almacenamiento privado, visibles solo para esta orden.</p>
 
           <label className="dropzone">
-            <input type="file" accept="image/jpeg,image/png,image/webp" capture="environment" onChange={uploadEvidence} disabled={busy || !hasStart} />
+            <input type="file" accept="image/jpeg,image/png,image/webp" capture="environment" onChange={uploadEvidence} disabled={busy || !canRecord} />
             <span>{busy ? "Subiendo…" : "Tomar o adjuntar fotografía"}</span>
-            <small>{hasStart ? "JPG, PNG o WebP · hasta 10 MB" : "Registra la llegada para habilitar la cámara"}</small>
+            <small>{canRecord ? "JPG, PNG o WebP · hasta 10 MB" : hasStart ? "Disponible mientras la orden está en proceso" : "Registra la llegada para habilitar la cámara"}</small>
           </label>
 
           <EvidenceGrid evidences={evidences} />

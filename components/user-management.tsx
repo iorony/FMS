@@ -3,6 +3,7 @@
 import { FormEvent, useState } from "react";
 import { useRouter } from "next/navigation";
 import { EmptyState } from "@/components/ui";
+import { CreationPanel } from "@/components/creation-panel";
 import { formatDate, roleLabel } from "@/lib/ui";
 import { sentenceCase } from "@/lib/text";
 
@@ -100,14 +101,8 @@ export function UserManagement({ profiles, actorRole }: Props) {
   return (
     <div className="stack">
       {isAdmin && (
-        <section className="panel">
-          <div className="panel-head">
-            <div>
-              <h2>Invitar a una persona</h2>
-              <p>Recibirá un correo para crear su contraseña y entrar con el rol asignado.</p>
-            </div>
-          </div>
-          <div className="panel-body">
+        <CreationPanel title="Invitar a una persona">
+            <p className="help">Recibirá un correo para crear su contraseña y entrar con el rol asignado.</p>
             <form className="form" onSubmit={invite}>
               <div className="form-row">
                 <label className="field">
@@ -134,8 +129,7 @@ export function UserManagement({ profiles, actorRole }: Props) {
                 </button>
               </div>
             </form>
-          </div>
-        </section>
+        </CreationPanel>
       )}
 
       <section className="panel">
@@ -204,6 +198,8 @@ export function UserManagement({ profiles, actorRole }: Props) {
                     </div>
                   )}
 
+                  {active === null && [editKey, passwordKey, `delete-${profile.id}`].map((key) => feedback[key] && <p key={key} className={`msg ${feedback[key]!.tone}`} role="status">{feedback[key]!.text}</p>)}
+
                   {active === "edit" && canEdit && (
                     <div className="user-panel">
                       <form className="inline-form" onSubmit={(event) => edit(event, profile.id)}>
@@ -232,6 +228,7 @@ export function UserManagement({ profiles, actorRole }: Props) {
                           <button className="btn small" disabled={busy !== null}>
                             {busy === editKey ? "Guardando…" : "Guardar cambios"}
                           </button>
+                          <button type="button" className="btn ghost small" disabled={busy !== null} onClick={() => togglePanel(profile.id, "edit")}>Descartar cambios</button>
                         </div>
                       </form>
                     </div>
@@ -250,6 +247,7 @@ export function UserManagement({ profiles, actorRole }: Props) {
                           <button className="btn ghost small" disabled={busy !== null}>
                             {busy === passwordKey ? "Actualizando…" : "Cambiar contraseña"}
                           </button>
+                          <button type="button" className="btn ghost small" disabled={busy !== null} onClick={() => togglePanel(profile.id, "password")}>Cancelar</button>
                         </div>
                       </form>
                     </div>

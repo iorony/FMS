@@ -19,6 +19,8 @@ function dayOption(offset: number) {
 
 export function CreateOrderScreen({ onCreated }: { onCreated: () => void }) {
   const [clients, setClients] = useState<Option[]>([]);
+  const [loadingCatalogs, setLoadingCatalogs] = useState(true);
+  const [catalogError, setCatalogError] = useState(false);
   const [technicians, setTechnicians] = useState<Option[]>([]);
   const [client, setClient] = useState<Option | null>(null);
   const [technician, setTechnician] = useState<Option | null>(null);
@@ -41,8 +43,11 @@ export function CreateOrderScreen({ onCreated }: { onCreated: () => void }) {
       supabase.from("clients").select("id,name").eq("is_active", true).order("name"),
       supabase.from("profiles").select("id,full_name").eq("role", "technician").eq("is_active", true).order("full_name"),
     ]).then(([clientsResult, techniciansResult]) => {
+      setCatalogError(!!(clientsResult.error || techniciansResult.error));
+      if (clientsResult.error || techniciansResult.error) show("error", "No se pudieron cargar los clientes o técnicos. Vuelve a abrir Crear para reintentar.", { persist: true });
       setClients((clientsResult.data ?? []).map((item) => ({ id: item.id, label: item.name })));
       setTechnicians((techniciansResult.data ?? []).map((item) => ({ id: item.id, label: item.full_name })));
+      setLoadingCatalogs(false);
     });
   }, []);
 
@@ -190,11 +195,11 @@ export function CreateOrderScreen({ onCreated }: { onCreated: () => void }) {
         </Field>
 
         <ToastBar toast={toast} onHide={hide} />
-        <Button title={technician ? "Crear y asignar orden" : "Guardar borrador"} busy={busy} onPress={create} />
+        <Button title={technician ? "Crear y asignar orden" : "Guardar borrador"} disabled={loadingCatalogs || catalogError} busy={busy} onPress={create} />
 
-        {!clients.length ? (
+        {!loadingCatalogs && !catalogError && !clients.length ? (
           <View style={create$.warn}>
-            <SectionTitle title="Sin clientes en el catálogo" lead="Registra un cliente desde la versión web antes de crear órdenes." />
+            <SectionTitle title="Sin clientes activos" lead="Registra o activa un cliente en Más → Clientes antes de crear órdenes." />
           </View>
         ) : null}
       </ScrollView>

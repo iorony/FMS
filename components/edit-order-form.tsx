@@ -199,7 +199,7 @@ export function EditOrderForm({ order, clients, technicians, helperIds }: { orde
         <button className="btn" disabled={sending}>{sending ? "Guardando…" : "Guardar cambios"}</button>
         {["borrador", "asignada"].includes(order.status) && <button type="button" className="btn ghost" disabled={sending} onClick={cancelOrder}>Cancelar orden</button>}
         {order.status === "cancelada" && <button type="button" className="btn ghost" disabled={sending} onClick={restoreOrder}>Restaurar como borrador</button>}
-        <button type="button" className="btn ghost" onClick={() => router.back()}>Cancelar</button>
+        <button type="button" className="btn ghost" disabled={sending} onClick={() => router.push(`/ordenes/${order.id}`)}>Descartar cambios</button>
       </div>
     </form>
   );

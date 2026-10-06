@@ -2,10 +2,10 @@
 
 import { Fragment, useState } from "react";
 import { EmptyState } from "@/components/ui";
-import { CatalogActions, CatalogEditRow, deleteCatalogRecord } from "@/components/catalog-management";
+import { CatalogActions, CatalogEditRow, deleteCatalogRecord, StockAdjustmentRow } from "@/components/catalog-management";
 
 type Client = { id: string; name: string; contact_name: string | null; contact_phone: string | null; email: string | null; address: string | null; is_active: boolean };
-type Material = { id: string; sku: string; name: string; unit: string; unit_cost: number; minimum_quantity: number; is_active: boolean };
+type Material = { id: string; sku: string; name: string; unit: string; unit_cost: number; minimum_quantity: number; is_active: boolean; on_hand_quantity?: number };
 type MaterialUsage = { material_id: string; client_id: string; client_name: string; unit: string; consumed_quantity: number; consumed_cost: number; last_consumed_at: string };
 
 type Props =
@@ -21,9 +21,10 @@ export function CatalogTable(props: Props) {
   const { type, records, canManage } = props;
   const materialUsage = type === "materials" ? props.materialUsage ?? [] : [];
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [adjustingId, setAdjustingId] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const columns = type === "clients" ? 6 : 7;
+  const columns = type === "clients" ? 6 : canManage ? 6 : 5;
 
   async function handleDelete(id: string) {
     setError(null);
@@ -56,12 +57,13 @@ export function CatalogTable(props: Props) {
           </thead>
         ) : (
           <thead>
-            <tr><th>SKU</th><th>Material</th><th>Unidad</th><th>Costo unitario</th><th>Mínimo de compra</th><th>Estado</th>{canManage && <th>Acciones</th>}</tr>
+            <tr><th>SKU</th><th>Material</th><th>Disponible en bodega</th><th>Costo unitario</th><th>Estado</th>{canManage && <th>Acciones</th>}</tr>
           </thead>
         )}
         <tbody>
           {records.map((record) => {
             const open = editingId === record.id;
+            const adjusting = adjustingId === record.id;
             return (
               <Fragment key={record.id}>
                 {type === "clients" ? (
@@ -73,7 +75,7 @@ export function CatalogTable(props: Props) {
                     <td data-label="Estado"><span className={`badge ${record.is_active ? "cerrada" : "borrador"}`}>{record.is_active ? "Activo" : "Inactivo"}</span></td>
                     {canManage && (
                       <td data-label="Acciones">
-                        <CatalogActions open={open} onToggle={() => setEditingId(open ? null : record.id)} busy={busyId === record.id} onDelete={() => handleDelete(record.id)} />
+                      <CatalogActions open={open} onToggle={() => setEditingId(open ? null : record.id)} busy={busyId === record.id} onDelete={() => handleDelete(record.id)} />
                       </td>
                     )}
                   </tr>
@@ -82,6 +84,7 @@ export function CatalogTable(props: Props) {
                     <td data-label=""><span className="mono">{(record as Material).sku}</span></td>
                     <td data-label="Material">
                       {(record as Material).name}
+                      <span className="sub">{(record as Material).unit} · mínimo de compra: {(record as Material).minimum_quantity} {(record as Material).unit}</span>
                       {(() => {
                         const usage = materialUsage.filter((item) => item.material_id === record.id);
                         if (!usage.length) return <span className="sub">Sin consumo registrado por cliente.</span>;
@@ -93,19 +96,24 @@ export function CatalogTable(props: Props) {
                         );
                       })()}
                     </td>
-                    <td data-label="Unidad">{(record as Material).unit}</td>
+                    <td data-label="Disponible"><strong>{Number((record as Material).on_hand_quantity ?? 0).toFixed(2)} {(record as Material).unit}</strong></td>
                     <td data-label="Costo unitario">Q {Number((record as Material).unit_cost).toFixed(2)}</td>
-                    <td data-label="Mínimo de compra">{(record as Material).minimum_quantity} {(record as Material).unit}</td>
                     <td data-label="Estado"><span className={`badge ${record.is_active ? "cerrada" : "borrador"}`}>{record.is_active ? "Activo" : "Inactivo"}</span></td>
                     {canManage && (
                       <td data-label="Acciones">
-                        <CatalogActions open={open} onToggle={() => setEditingId(open ? null : record.id)} busy={busyId === record.id} onDelete={() => handleDelete(record.id)} />
+                        <div className="catalog-actions">
+                          <CatalogActions open={open} onToggle={() => { setEditingId(open ? null : record.id); setAdjustingId(null); }} busy={busyId === record.id} onDelete={() => handleDelete(record.id)} />
+                          <button type="button" className="btn ghost small" aria-expanded={adjusting} onClick={() => { setAdjustingId(adjusting ? null : record.id); setEditingId(null); }}>Ajustar existencia</button>
+                        </div>
                       </td>
                     )}
                   </tr>
                 )}
                 {open && canManage && (
                   <CatalogEditRow type={type} record={record} columns={columns} onDone={() => setEditingId(null)} />
+                )}
+                {type === "materials" && adjusting && canManage && (
+                  <StockAdjustmentRow material={record as Material} currentQuantity={(record as Material).on_hand_quantity ?? 0} columns={columns} onDone={() => setAdjustingId(null)} />
                 )}
               </Fragment>
             );

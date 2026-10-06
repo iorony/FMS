@@ -1,8 +1,8 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { FlatList, RefreshControl, StatusBar, StyleSheet, View } from "react-native";
+import { useCallback, useEffect, useState } from "react";
+import { FlatList, RefreshControl, StatusBar, StyleSheet, Text, View } from "react-native";
 import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
 import type { Session } from "@supabase/supabase-js";
-import { supabase } from "./lib/supabase";
+import { isSupabaseConfigured, supabase } from "./lib/supabase";
 import { C, ROLE_LABEL } from "./theme";
 import { ORDER_SELECT, type Order, type Profile } from "./types";
 import { PageHead, TabBar, TopBar, type TabKey } from "./components/chrome";
@@ -24,6 +24,10 @@ export default function App() {
   const [checking, setChecking] = useState(true);
 
   useEffect(() => {
+    if (!isSupabaseConfigured) {
+      setChecking(false);
+      return;
+    }
     supabase.auth.getSession().then(({ data }) => { setSession(data.session); setChecking(false); });
     const { data } = supabase.auth.onAuthStateChange((_event, next) => setSession(next));
     return () => data.subscription.unsubscribe();
@@ -34,8 +38,20 @@ export default function App() {
       <StatusBar barStyle="light-content" backgroundColor={C.graphite} />
       {checking
         ? <View style={{ flex: 1, backgroundColor: C.graphite }}><Loading label="Abriendo sesión…" dark /></View>
+        : !isSupabaseConfigured ? <ConfigurationRequired />
         : session ? <Workspace session={session} /> : <LoginScreen />}
     </SafeAreaProvider>
+  );
+}
+
+function ConfigurationRequired() {
+  return (
+    <View style={configuration.screen}>
+      <Text style={configuration.title}>Configuración pendiente</Text>
+      <Text style={configuration.text}>
+        Esta APK no incluye la conexión segura con el sistema. Solicita una compilación con las variables de Supabase configuradas.
+      </Text>
+    </View>
   );
 }
 
@@ -89,17 +105,24 @@ function Workspace({ session }: { session: Session }) {
 
   useEffect(() => { load(); }, [load]);
 
+  // Time-sensitive labels and filters must refresh even when the orders do not change.
+  const [, refreshClock] = useState(0);
+  useEffect(() => {
+    const timer = setInterval(() => refreshClock((tick) => tick + 1), 60000);
+    return () => clearInterval(timer);
+  }, []);
+
   const manager = profile?.role === "admin" || profile?.role === "coordinator";
-  const counts = useMemo(() => {
+  const counts = (() => {
     const result: Record<string, number> = {};
     for (const order of orders) result[order.status] = (result[order.status] ?? 0) + 1;
     result.hoy = orders.filter((order) => isToday(order.scheduled_at)).length;
     result.atrasadas = orders.filter((order) => isOverdue(order.scheduled_at) && ["borrador", "asignada"].includes(order.status)).length;
     result.sin_asignar = orders.filter((order) => !order.assigned_technician_id && order.status === "borrador").length;
     return result;
-  }, [orders]);
+  })();
 
-  const visible = useMemo(() => {
+  const visible = (() => {
     const term = query.trim().toLowerCase();
     return orders.filter((order) => {
       if (filter === "hoy" && !isToday(order.scheduled_at)) return false;
@@ -109,7 +132,7 @@ function Workspace({ session }: { session: Session }) {
       if (!term) return true;
       return `${order.code} ${order.clients?.name ?? ""} ${order.address}`.toLowerCase().includes(term);
     });
-  }, [orders, query, filter]);
+  })();
 
   const isAdmin = profile?.role === "admin";
   const tabs = manager
@@ -146,7 +169,7 @@ function Workspace({ session }: { session: Session }) {
     reports: { title: manager ? "Asistencia y preliquidación" : "Mis horas y pago estimado", lead: manager ? "Horarios, GPS y cálculo estimado de pagos." : "Tus horas se validan con GPS de llegada y salida." },
     orderReports: { title: "Reporte de órdenes", lead: "Estados, seguimiento y cumplimiento documental por orden." },
     clients: { title: "Clientes", lead: "Empresas y personas para las que se ejecutan instalaciones." },
-    materials: { title: "Materiales", lead: "Insumos, costos y mínimos de compra para consumos y estimaciones." },
+    materials: { title: "Materiales", lead: "Catálogo único, existencias en bodega y consumo por cliente." },
     users: { title: isAdmin ? "Personas con acceso" : "Acceso de técnicos", lead: isAdmin ? "Invita, edita, elimina o restablece el acceso de cada cuenta." : "Restablece contraseñas cuando un técnico pierda el acceso." },
   };
 
@@ -224,4 +247,10 @@ function Workspace({ session }: { session: Session }) {
 const shell = StyleSheet.create({
   safe: { flex: 1, backgroundColor: C.paper },
   list: { padding: 16, paddingBottom: 28, gap: 12, flexGrow: 1 },
+});
+
+const configuration = StyleSheet.create({
+  screen: { flex: 1, justifyContent: "center", padding: 28, gap: 12, backgroundColor: C.paper },
+  title: { fontSize: 24, fontWeight: "800", color: C.graphite },
+  text: { fontSize: 16, lineHeight: 24, color: C.ink },
 });

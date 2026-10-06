@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Platform, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { File, Paths } from "expo-file-system";
 import * as Sharing from "expo-sharing";
 import { supabase } from "../lib/supabase";
@@ -20,13 +20,24 @@ const COMPLIANCE_OPTIONS: Option[] = [{ id: "", label: "Todo cumplimiento" }, { 
 
 function minutes(value: number | null) { if (value === null || value === undefined) return "—"; const hours = Math.floor(value / 60); const rest = value % 60; return hours ? `${hours} h${rest ? ` ${rest} min` : ""}` : `${rest} min`; }
 function money(value: number | null) { return value === null || value === undefined ? "Tarifa pendiente" : `Q ${Number(value).toFixed(2)}`; }
+function attendanceTime(value: string | null, missing: string) { return value ? formatDateTime(value) : missing; }
+function attendancePayment(row: ReportRow) { return !row.clock_out_at ? "Pendiente de salida" : row.hourly_rate === null ? "Tarifa pendiente" : row.estimated_payment === null ? "Pago pendiente de cálculo" : money(row.estimated_payment); }
 function validDate(value: string) { return !value || /^\d{4}-\d{2}-\d{2}$/.test(value); }
 function complete(row: OperationalRow) { return row.has_gps_start && row.has_gps_end && row.evidence_count > 0 && row.material_entries > 0 && row.has_customer_signature; }
 
 async function shareCsv(filename: string, rows: (string | number | null)[][]) {
   const escape = (value: string | number | null) => { const text = String(value ?? ""); return /[",;\n]/.test(text) ? `"${text.replaceAll('"', '""')}"` : text; };
+  const csv = `\uFEFF${rows.map((row) => row.map(escape).join(",")).join("\r\n")}`;
+  if (Platform.OS === "web") {
+    const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
+    const link = document.createElement("a");
+    link.href = url; link.download = filename;
+    document.body.appendChild(link); link.click(); link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    return;
+  }
   const file = new File(Paths.cache, filename);
-  file.write(`\uFEFF${rows.map((row) => row.map(escape).join(",")).join("\r\n")}`);
+  file.write(csv);
   if (!await Sharing.isAvailableAsync()) throw new Error("Este dispositivo no permite compartir archivos.");
   await Sharing.shareAsync(file.uri, { mimeType: "text/csv", dialogTitle: "Compartir reporte" });
 }
@@ -53,7 +64,7 @@ export function ReportsScreen({ technician = false }: { technician?: boolean }) 
   const verified = useMemo(() => rows?.filter((row) => row.clock_in_at && row.clock_out_at) ?? [], [rows]);
   const regular = verified.reduce((total, row) => total + (row.regular_minutes ?? 0), 0); const overtime = verified.reduce((total, row) => total + (row.overtime_minutes ?? 0), 0); const payment = verified.reduce((total, row) => total + Number(row.estimated_payment ?? 0), 0);
   function apply() { if (!validDate(fromDraft) || !validDate(toDraft) || (fromDraft && toDraft && fromDraft > toDraft)) return show("error", "Ingresa fechas válidas en formato AAAA-MM-DD; Desde no puede ser posterior a Hasta."); setFilters({ from: fromDraft, to: toDraft, technicianId: technicianDraft, attendance: attendanceDraft }); }
-  async function exportAttendance() { if (!rows?.length) return show("error", "No hay jornadas con los filtros actuales para exportar."); try { await shareCsv(`preliquidacion-${new Date().toISOString().slice(0, 10)}.csv`, [["Fecha", "Técnico", "Entrada", "Salida", "Horas normales", "Horas extra", "Pago estimado"], ...rows.map((row) => [formatDate(row.work_date), row.technician_name, formatDateTime(row.clock_in_at), formatDateTime(row.clock_out_at), minutes(row.regular_minutes), minutes(row.overtime_minutes), money(row.estimated_payment)])]); show("success", "Preliquidación lista para compartir."); } catch (exportError) { show("error", errorMessage(exportError, "No fue posible exportar el CSV.")); } }
+  async function exportAttendance() { if (!rows?.length) return show("error", "No hay jornadas con los filtros actuales para exportar."); try { await shareCsv(`preliquidacion-${new Date().toISOString().slice(0, 10)}.csv`, [["Fecha", "Técnico", "Entrada", "Salida", "Horas normales", "Horas extra", "Pago estimado"], ...rows.map((row) => [formatDate(row.work_date), row.technician_name, attendanceTime(row.clock_in_at, "Sin entrada"), attendanceTime(row.clock_out_at, "Sin salida"), minutes(row.regular_minutes), minutes(row.overtime_minutes), attendancePayment(row)])]); show("success", "Preliquidación lista para compartir."); } catch (exportError) { show("error", errorMessage(exportError, "No fue posible exportar el CSV.")); } }
 
   return <ScrollView contentContainerStyle={reports.body} keyboardShouldPersistTaps="handled">
     <ToastBar toast={toast} onHide={hide} />
@@ -61,7 +72,7 @@ export function ReportsScreen({ technician = false }: { technician?: boolean }) 
     <Button title="Descargar CSV" variant="secondary" onPress={exportAttendance} />
     {!rows ? <Loading label="Cargando asistencia…" /> : error ? <Card><Text style={reports.error}>{error}</Text></Card> : <>
       <View style={reports.grid}><Metric label="Horas normales" value={minutes(regular)} note="Dentro de la jornada diaria" /><Metric label="Horas extra" value={minutes(overtime)} note="Después de la jornada configurada" tone="work" /><Metric label="Pago estimado" value={money(payment)} note="Incluye multiplicador de horas extra" tone="done" /><Metric label="Jornadas abiertas" value={rows.length - verified.length} note="Falta salida GPS" tone="due" /></View>
-      <Card><SectionTitle title={technician ? "Mis jornadas" : "Jornadas y preliquidación"} lead="Se descuenta hasta 1 hora de almuerzo entre 12:00 y 14:00; las horas posteriores a la jornada configurada son extras." />{rows.length ? rows.map((row) => <View key={row.id} style={reports.row}><View style={{ flex: 1 }}><Text style={reports.code}>{formatDate(row.work_date)} · {row.technician_name}</Text><Text style={reports.meta}>GPS: {formatDateTime(row.clock_in_at)} → {formatDateTime(row.clock_out_at)}</Text><Text style={reports.payment}>{minutes(row.regular_minutes)} normales · {minutes(row.overtime_minutes)} extra · {money(row.estimated_payment)}</Text><Text style={reports.meta}>{row.hourly_rate === null ? "Tarifa por hora pendiente" : `${money(row.hourly_rate)} / hora`}</Text></View></View>) : <EmptyState title="Sin jornadas con estos filtros" text="Cambia las fechas o quita alguno de los filtros." />}</Card>
+      <Card><SectionTitle title={technician ? "Mis jornadas" : "Jornadas y preliquidación"} lead="Se descuenta hasta 1 hora de almuerzo entre 12:00 y 14:00; las horas posteriores a la jornada configurada son extras." />{rows.length ? rows.map((row) => <View key={row.id} style={reports.row}><View style={{ flex: 1 }}><Text style={reports.code}>{formatDate(row.work_date)} · {row.technician_name}</Text><Text style={reports.meta}>GPS: {attendanceTime(row.clock_in_at, "Sin entrada")} → {attendanceTime(row.clock_out_at, "Sin salida")}</Text><Text style={reports.payment}>{minutes(row.regular_minutes)} normales · {minutes(row.overtime_minutes)} extra · {attendancePayment(row)}</Text><Text style={reports.meta}>{row.hourly_rate === null ? "Tarifa por hora pendiente" : `${money(row.hourly_rate)} / hora`}</Text></View></View>) : <EmptyState title="Sin jornadas con estos filtros" text="Cambia las fechas o quita alguno de los filtros." />}</Card>
     </>}
     <SelectSheet visible={sheet === "technician"} title="Filtrar por técnico" options={technicians} selectedId={technicianDraft} onSelect={(option) => { setTechnicianDraft(option.id); setSheet(null); }} onClose={() => setSheet(null)} />
     <SelectSheet visible={sheet === "attendance"} title="Filtrar por jornada" options={ATTENDANCE_OPTIONS} selectedId={attendanceDraft} onSelect={(option) => { setAttendanceDraft(option.id as AttendanceFilter); setSheet(null); }} onClose={() => setSheet(null)} />

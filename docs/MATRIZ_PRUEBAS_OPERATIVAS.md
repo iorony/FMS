@@ -14,7 +14,11 @@ Usa datos de demostración y una cuenta distinta para cada rol. Registra fecha, 
 | OP-08 | Técnico · app | Intentar abrir una orden no asignada o cerrar una orden incompleta. | RLS y RPC rechazan la operación; la interfaz muestra un mensaje comprensible. |
 | OP-09 | Técnico · app | Registrar entrada y salida de jornada; exportar su reporte. | Se calcula tiempo regular, extra y pago estimado según la configuración. |
 | OP-10 | Administrador · Supabase | Restaurar una copia de respaldo en un entorno de prueba. | Se recuperan esquema, políticas y datos de demostración sin afectar producción. |
+| OP-11 | Administrador · web | Registrar existencia, asignar material a un cliente y revisar el saldo. | La asignación disminuye exactamente el saldo de bodega y crea un saldo independiente para el cliente. |
+| OP-12 | Técnico · web o app | Consumir material en una orden de un cliente con saldo asignado. | Solo puede elegir asignaciones de ese cliente; el consumo reduce el saldo asignado y queda vinculado a la orden. |
+| OP-13 | Técnico · web o app | Intentar consumir más de lo asignado o usar material de otro cliente. | La operación se rechaza sin crear consumo ni modificar saldos. |
+| OP-14 | Administrador · web | Registrar devolución parcial de material entregado a un cliente. | Se reduce el saldo del cliente y la cantidad devuelta regresa a bodega con trazabilidad. |
 
 ## Criterios de salida
 
-La validación operativa se considera aprobada cuando OP-01 a OP-09 cuentan con evidencia y no hay fallos críticos de permisos, transiciones, carga de archivos ni cierre. OP-10 debe realizarse antes de producción y repetirse conforme a la política de respaldo definida por la organización.
+La validación operativa se considera aprobada cuando OP-01 a OP-09 y OP-11 a OP-14 cuentan con evidencia y no hay fallos críticos de permisos, transiciones, inventario, carga de archivos ni cierre. OP-10 debe realizarse antes de producción y repetirse conforme a la política de respaldo definida por la organización.

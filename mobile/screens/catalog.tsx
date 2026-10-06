@@ -1,10 +1,11 @@
 import { useEffect, useState } from "react";
-import { Alert, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { supabase } from "../lib/supabase";
 import { C } from "../theme";
 import { errorMessage, sentenceCase } from "../lib/format";
 import type { Client, Material } from "../types";
 import { Button, Card, EmptyState, Field, Input, Loading, SectionTitle, ToastBar, useToast } from "../components/ui";
+import { InventoryManagement } from "../components/inventory-management";
 
 type CatalogRecord = Client | Material;
 type Props = { type: "clients" | "materials" };
@@ -17,7 +18,10 @@ export function CatalogScreen({ type }: Props) {
   const [records, setRecords] = useState<CatalogRecord[] | null>(null);
   const [materialUsage, setMaterialUsage] = useState<MaterialUsage[]>([]);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [creating, setCreating] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [stock, setStock] = useState<Record<string, number> | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
   const { toast, show, hide } = useToast();
 
   // Alta
@@ -52,6 +56,11 @@ export function CatalogScreen({ type }: Props) {
       setRecords((data ?? []) as unknown as CatalogRecord[]);
     });
     if (type === "materials") {
+      setStock(null);
+      supabase.from("material_inventory").select("material_id,on_hand_quantity").then(({ data, error }) => {
+        if (error) return show("error", "No se pudo consultar la existencia de bodega. Actualiza el catálogo para reintentar.", { persist: true });
+        setStock(Object.fromEntries((data ?? []).map((item) => [item.material_id, Number(item.on_hand_quantity)])));
+      });
       supabase.from("material_client_consumption_summary").select("material_id,client_id,client_name,unit,consumed_quantity,consumed_cost,last_consumed_at").order("last_consumed_at", { ascending: false })
         .then(({ data, error }) => {
           if (error) show("error", errorMessage(error, "No se pudo cargar el consumo por cliente. Inténtalo nuevamente."));
@@ -67,6 +76,7 @@ export function CatalogScreen({ type }: Props) {
   }
 
   async function create() {
+    if (!name.trim() || (type === "materials" && (!sku.trim() || !unit.trim()))) return show("error", "Completa el nombre y, para materiales, el código y la unidad.", { persist: true });
     if (type === "materials" && (!Number.isFinite(Number(unitCost.replace(",", "."))) || Number(unitCost.replace(",", ".")) < 0 || !Number.isFinite(Number(minimumQuantity.replace(",", "."))) || Number(minimumQuantity.replace(",", ".")) <= 0)) {
       return show("error", "Ingresa un costo válido y una cantidad mínima mayor que cero.");
     }
@@ -78,11 +88,14 @@ export function CatalogScreen({ type }: Props) {
     setBusy(false);
     if (error) return show("error", error.code === "23505" ? "Ya existe un registro con ese código." : "No se pudo guardar el registro. Revisa los datos e inténtalo nuevamente.");
     resetCreateForm();
+    setCreating(false);
     show("success", type === "clients" ? "Cliente registrado." : "Material agregado.");
     load();
   }
 
   function openEdit(record: CatalogRecord) {
+    hide();
+    setCreating(false); setDeletingId(null);
     setEditingId(record.id);
     if (isClient(record)) {
       setEditName(record.name); setEditContactName(record.contact_name ?? ""); setEditContactPhone(record.contact_phone ?? "");
@@ -93,6 +106,7 @@ export function CatalogScreen({ type }: Props) {
   }
 
   async function saveEdit(id: string) {
+    if (!editName.trim() || (type === "materials" && (!editSku.trim() || !editUnit.trim()))) return show("error", "Completa el nombre y, para materiales, el código y la unidad.", { persist: true });
     if (type === "materials" && (!Number.isFinite(Number(editUnitCost.replace(",", "."))) || Number(editUnitCost.replace(",", ".")) < 0 || !Number.isFinite(Number(editMinimumQuantity.replace(",", "."))) || Number(editMinimumQuantity.replace(",", ".")) <= 0)) {
       return show("error", "Ingresa un costo válido y una cantidad mínima mayor que cero.");
     }
@@ -108,20 +122,13 @@ export function CatalogScreen({ type }: Props) {
     load();
   }
 
-  function confirmDelete(record: CatalogRecord) {
-    Alert.alert(
-      "Eliminar registro",
-      `¿Eliminar este ${type === "clients" ? "cliente" : "material"}? Solo será posible si no está asociado a órdenes existentes.`,
-      [{ text: "Cancelar", style: "cancel" }, { text: "Eliminar", style: "destructive", onPress: () => remove(record.id) }],
-    );
-  }
-
   async function remove(id: string) {
     setBusy(true);
     const { error } = await supabase.from(type).delete().eq("id", id);
     setBusy(false);
     if (error) return show("error", "No se puede eliminar: tiene información relacionada. Desactívalo para conservar el historial.");
     show("success", "Registro eliminado.");
+    setEditingId(null); setDeletingId(null);
     load();
   }
 
@@ -130,10 +137,11 @@ export function CatalogScreen({ type }: Props) {
   return (
     <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : undefined} keyboardVerticalOffset={90}>
       <ScrollView contentContainerStyle={cat.body} keyboardShouldPersistTaps="handled">
-        <ToastBar toast={toast} onHide={hide} />
+        {!editingId && <ToastBar toast={toast} onHide={hide} />}
 
         <Card>
-          <SectionTitle title={type === "clients" ? "Registrar cliente" : "Agregar material"} />
+          <Button title={`${creating ? "Cerrar formulario" : type === "clients" ? "Registrar cliente" : "Agregar material"}`} variant="secondary" disabled={busy} onPress={() => { setEditingId(null); setDeletingId(null); setCreating((value) => !value); }} />
+          {creating && <>
           {type === "clients" ? (
             <>
               <Field label="Nombre o razón social"><Input value={name} onChangeText={setName} placeholder="Empresa o persona" /></Field>
@@ -152,8 +160,11 @@ export function CatalogScreen({ type }: Props) {
             </>
           )}
           <Button title={type === "clients" ? "Registrar cliente" : "Agregar material"} busy={busy} onPress={create} />
+          </>}
         </Card>
 
+        {type === "materials" && <InventoryManagement materials={records as Material[]} onChanged={load} />}
+        <Button title="Actualizar catálogo" variant="secondary" disabled={busy} onPress={load} />
         <SectionTitle title={type === "clients" ? "Catálogo de clientes" : "Catálogo de materiales"} lead={`${records.length} registro${records.length === 1 ? "" : "s"}.`} />
 
         {records.length ? records.map((record) => {
@@ -169,6 +180,7 @@ export function CatalogScreen({ type }: Props) {
                       ? [record.contact_name, record.contact_phone].filter(Boolean).join(" · ") || "Sin contacto registrado"
                       : `Unidad: ${(record as Material).unit}`}
                   </Text>
+                  {!isClient(record) && <Text style={cat.usage}>Bodega: {stock ? `${(stock[record.id] ?? 0).toFixed(2)} ${(record as Material).unit}` : "Existencia no disponible"}</Text>}
                   {!isClient(record) && (usage.length
                     ? <Text style={cat.usage}>Consumido por {usage.length} cliente{usage.length === 1 ? "" : "s"}: {usage.map((item) => `${item.client_name} · ${item.consumed_quantity} ${item.unit} · Q ${Number(item.consumed_cost).toFixed(2)}`).join("  |  ")}</Text>
                     : <Text style={cat.usage}>Sin consumo registrado por cliente.</Text>)}
@@ -179,16 +191,14 @@ export function CatalogScreen({ type }: Props) {
               </View>
 
               <View style={cat.actions}>
-                <Pressable onPress={() => (editing ? setEditingId(null) : openEdit(record))} style={cat.pill} accessibilityRole="button">
-                  <Text style={cat.pillText}>{editing ? "− Editar" : "＋ Editar"}</Text>
-                </Pressable>
-                <Pressable onPress={() => confirmDelete(record)} style={[cat.pill, cat.pillDanger]} accessibilityRole="button">
-                  <Text style={[cat.pillText, cat.pillDangerText]}>Eliminar</Text>
+                <Pressable disabled={busy} onPress={() => (editing ? setEditingId(null) : openEdit(record))} style={cat.pill} accessibilityRole="button" accessibilityState={{ expanded: editing, disabled: busy }}>
+                  <Text style={cat.pillText}>{editing ? "Cerrar edición" : "Editar"}</Text>
                 </Pressable>
               </View>
 
               {editing && (
                 <View style={cat.panel}>
+                  <ToastBar toast={toast} onHide={hide} />
                   {type === "clients" ? (
                     <>
                       <Field label="Nombre o razón social"><Input value={editName} onChangeText={setEditName} /></Field>
@@ -211,6 +221,13 @@ export function CatalogScreen({ type }: Props) {
                     <Text style={cat.switchLabel}>{type === "clients" ? "Cliente activo" : "Material activo"}</Text>
                   </Pressable>
                   <Button title="Guardar cambios" busy={busy} onPress={() => saveEdit(record.id)} />
+                  <Button title="Descartar cambios" variant="secondary" disabled={busy} onPress={() => { hide(); setEditingId(null); setDeletingId(null); }} />
+                  <Text style={cat.meta}>Para conservar el historial, desactiva el registro en lugar de eliminarlo.</Text>
+                  {deletingId === record.id ? <>
+                    <Text style={cat.meta}>¿Eliminar definitivamente este registro? Solo es posible si no tiene información relacionada.</Text>
+                    <Button title="Confirmar eliminación definitiva" variant="secondary" busy={busy} onPress={() => remove(record.id)} />
+                    <Button title="Cancelar eliminación" variant="secondary" disabled={busy} onPress={() => setDeletingId(null)} />
+                  </> : <Pressable disabled={busy} onPress={() => setDeletingId(record.id)} style={[cat.pill, cat.pillDanger]} accessibilityRole="button"><Text style={[cat.pillText, cat.pillDangerText]}>Eliminar registro…</Text></Pressable>}
                 </View>
               )}
             </Card>
@@ -234,7 +251,7 @@ const cat = StyleSheet.create({
   statusText: { color: C.ok, fontSize: 11.5, fontWeight: "800" },
   statusTextOff: { color: "#52627a" },
   actions: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 12 },
-  pill: { minHeight: 34, paddingHorizontal: 12, justifyContent: "center", borderRadius: 99, backgroundColor: C.surface2, borderWidth: 1, borderColor: C.line },
+  pill: { minHeight: 44, paddingHorizontal: 12, justifyContent: "center", borderRadius: 99, backgroundColor: C.surface2, borderWidth: 1, borderColor: C.line },
   pillText: { color: C.action, fontSize: 12.5, fontWeight: "700" },
   pillDanger: { backgroundColor: C.dangerSoft, borderColor: "#f4cfcd" },
   pillDangerText: { color: C.danger },

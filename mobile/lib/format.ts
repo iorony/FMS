@@ -5,10 +5,17 @@ export function formatDateTime(value: string | null) {
 
 export function formatDate(value: string | null) {
   if (!value) return "—";
-  return new Date(value).toLocaleDateString("es-GT", { timeZone: "America/Guatemala", day: "2-digit", month: "short", year: "numeric" });
+  // SQL date is a calendar day, not midnight UTC (which is the previous day in Guatemala).
+  const calendarDate = /^\d{4}-\d{2}-\d{2}$/.test(value);
+  return new Date(calendarDate ? `${value}T12:00:00Z` : value).toLocaleDateString("es-GT", { timeZone: "America/Guatemala", day: "2-digit", month: "short", year: "numeric" });
 }
 
-const startOfDay = (date: Date) => new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
+const calendarFormatter = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Guatemala", year: "numeric", month: "2-digit", day: "2-digit" });
+const startOfDay = (date: Date) => {
+  const parts = calendarFormatter.formatToParts(date);
+  const part = (type: string) => Number(parts.find((item) => item.type === type)?.value);
+  return Date.UTC(part("year"), part("month") - 1, part("day"));
+};
 
 /** "hoy", "mañana", "hace 3 días": más útil que una fecha exacta en campo. */
 export function relativeDay(value: string | null) {
@@ -30,11 +37,13 @@ export function isOverdue(value: string | null) {
 }
 
 export function errorMessage(error: unknown, fallback = "Inténtalo nuevamente.") {
-  const message = error instanceof Error ? error.message.trim() : "";
+  const raw = error instanceof Error ? error.message : typeof error === "object" && error !== null && "message" in error ? error.message : "";
+  const message = typeof raw === "string" ? raw.trim() : "";
   const safePrefixes = [
     "Tu sesión", "No autorizado", "No tienes permiso", "La orden", "Primero ",
     "Escribe ", "No hay ", "Este dispositivo", "Autoriza ", "Se requiere ",
     "La imagen ", "La firma ", "No encontramos ",
+    "El GPS ", "La cantidad ", "El material ",
   ];
   return safePrefixes.some((prefix) => message.startsWith(prefix)) ? message : fallback;
 }

@@ -48,6 +48,12 @@ export default async function OrderDetail({ params }: { params: Promise<{ id: st
 
   if (!order) notFound();
 
+  const { data: clientAssignments } = await supabase
+    .from("client_material_assignments")
+    .select("id,material_id,assigned_quantity,consumed_quantity,returned_quantity,materials(id,name,sku,unit,unit_cost,minimum_quantity)")
+    .eq("client_id", order.client_id)
+    .order("assigned_at");
+
   const client = one<{ name: string; contact_name: string | null; contact_phone: string | null }>(order.clients);
   const technician = one<{ full_name: string; email: string }>(order.profiles);
   const signature = one<{ signer_name: string; signed_at: string }>(order.customer_signatures);
@@ -164,7 +170,14 @@ export default async function OrderDetail({ params }: { params: Promise<{ id: st
           locations={locations}
           evidences={evidences}
           consumptions={consumptions}
-          materials={materials ?? []}
+          materials={(clientAssignments ?? []).map((assignment) => ({
+            id: assignment.id,
+            material_id: assignment.material_id,
+            assigned_quantity: assignment.assigned_quantity,
+            consumed_quantity: assignment.consumed_quantity,
+            returned_quantity: assignment.returned_quantity,
+            materials: Array.isArray(assignment.materials) ? assignment.materials[0] : assignment.materials,
+          })).filter((assignment) => assignment.materials)}
         />
 
         <OrderFinalization

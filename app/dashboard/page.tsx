@@ -52,7 +52,7 @@ function buildTasks(orders: Order[], role: string | null): Task[] {
         cta: isTechnician ? "Capturar firma" : "Ver orden",
       });
     } else if (order.status === "pendiente_de_cierre" && signed && !isTechnician) {
-      tasks.push({ order, reason: "Expediente completo, listo para validar y cerrar", urgent: false, cta: "Validar cierre" });
+      tasks.push({ order, reason: "Firma recibida; revisar los requisitos y validar el cierre", urgent: false, cta: "Validar cierre" });
     }
   }
 
@@ -144,7 +144,7 @@ export default async function Dashboard() {
                 </div>
                 <div className="todo-side">
                   <StatusBadge status={order.status} />
-                  <Link className="btn ghost small" href={`/ordenes/${order.id}`}>{cta}</Link>
+                  <Link className="btn ghost small" href={`/ordenes/${order.id}${cta === "Asignar" ? "/editar" : ""}`}>{cta}</Link>
                 </div>
               </div>
             ))}

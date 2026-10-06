@@ -84,7 +84,7 @@ function buildTasks(orders: Order[], manager: boolean): Task[] {
     if (order.status === "borrador" && manager) {
       tasks.push({ order, reason: "Sin técnico asignado", urgent: late });
     } else if (order.status === "asignada" && late) {
-      tasks.push({ order, reason: "Programada antes de hoy y aún no inicia", urgent: true });
+      tasks.push({ order, reason: "Horario programado vencido y aún no inicia", urgent: true });
     } else if (order.status === "asignada" && isToday(order.scheduled_at)) {
       tasks.push({ order, reason: manager ? `Hoy con ${order.profiles?.full_name ?? "el técnico asignado"}` : "Te toca hoy", urgent: false });
     } else if (order.status === "pendiente_de_cierre" && !signed) {

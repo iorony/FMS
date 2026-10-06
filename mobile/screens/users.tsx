@@ -28,6 +28,7 @@ export function UsersScreen({ role }: { role: Role }) {
   const [openId, setOpenId] = useState<string | null>(null);
   const [panel, setPanel] = useState<Panel>(null);
   const [busy, setBusy] = useState(false);
+  const [inviting, setInviting] = useState(false);
   const { toast, show, hide } = useToast();
 
   // Formulario de invitación
@@ -135,7 +136,9 @@ export function UsersScreen({ role }: { role: Role }) {
 
         {isAdmin && (
           <Card>
-            <SectionTitle title="Invitar a una persona" lead="Recibirá un correo para crear su contraseña y entrar con el rol asignado." />
+            <Button title={inviting ? "Cerrar invitación" : "Invitar a una persona"} variant="secondary" disabled={busy} onPress={() => setInviting((value) => !value)} />
+            {inviting && <>
+            <Text style={users.help}>Recibirá un correo para crear su contraseña y entrar con el rol asignado.</Text>
             <Field label="Nombre completo">
               <Input value={inviteName} onChangeText={setInviteName} placeholder="Nombre y apellido" />
             </Field>
@@ -146,6 +149,7 @@ export function UsersScreen({ role }: { role: Role }) {
               <SelectField value={ROLE_LABEL[inviteRole]} placeholder="Rol" onPress={() => setInviteRolePicker(true)} />
             </Field>
             <Button title="Enviar invitación" busy={busy} onPress={invite} />
+            </>}
           </Card>
         )}
 
@@ -178,11 +182,6 @@ export function UsersScreen({ role }: { role: Role }) {
                     <Text style={users.pillText}>{expanded && panel === "password" ? "− Contraseña" : "＋ Contraseña"}</Text>
                   </Pressable>
                 )}
-                {isAdmin && (
-                  <Pressable onPress={() => confirmDelete(person)} style={[users.pill, users.pillDanger]} accessibilityRole="button">
-                    <Text style={[users.pillText, users.pillDangerText]}>Eliminar</Text>
-                  </Pressable>
-                )}
               </View>
 
               {expanded && panel === "edit" && (
@@ -196,6 +195,8 @@ export function UsersScreen({ role }: { role: Role }) {
                   </Pressable>
                   <Text style={users.help}>Una cuenta inactiva no puede iniciar sesión ni recibir órdenes.</Text>
                   <Button title="Guardar cambios" busy={busy} onPress={() => saveEdit(person)} />
+                  <Button title="Descartar cambios" variant="secondary" disabled={busy} onPress={() => { setOpenId(null); setPanel(null); }} />
+                  {isAdmin && <Pressable disabled={busy} onPress={() => confirmDelete(person)} style={[users.pill, users.pillDanger]} accessibilityRole="button"><Text style={[users.pillText, users.pillDangerText]}>Eliminar cuenta…</Text></Pressable>}
                 </View>
               )}
 
@@ -206,6 +207,7 @@ export function UsersScreen({ role }: { role: Role }) {
                   </Field>
                   <Text style={users.help}>Comunícala de forma segura; no se muestra de nuevo.</Text>
                   <Button title="Cambiar contraseña" variant="secondary" busy={busy} onPress={() => saveResetPassword(person)} />
+                  <Button title="Cancelar" variant="secondary" disabled={busy} onPress={() => { setOpenId(null); setPanel(null); setPassword(""); }} />
                 </View>
               )}
             </Card>
@@ -240,7 +242,7 @@ const users = StyleSheet.create({
   statusText: { color: C.ok, fontSize: 11.5, fontWeight: "800" },
   statusTextOff: { color: "#52627a" },
   actions: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 12 },
-  pill: { minHeight: 34, paddingHorizontal: 12, justifyContent: "center", borderRadius: 99, backgroundColor: C.surface2, borderWidth: 1, borderColor: C.line },
+  pill: { minHeight: 44, paddingHorizontal: 12, justifyContent: "center", borderRadius: 99, backgroundColor: C.surface2, borderWidth: 1, borderColor: C.line },
   pillText: { color: C.action, fontSize: 12.5, fontWeight: "700" },
   pillDanger: { backgroundColor: C.dangerSoft, borderColor: "#f4cfcd" },
   pillDangerText: { color: C.danger },

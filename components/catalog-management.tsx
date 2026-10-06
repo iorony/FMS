@@ -156,6 +156,52 @@ export function CatalogEditRow({ type, record, columns, onDone }: {
   );
 }
 
+/** Ajustar existencias es una acción del material, no una columna independiente. */
+export function StockAdjustmentRow({ material, currentQuantity, columns, onDone }: {
+  material: Material; currentQuantity: number; columns: number; onDone: () => void;
+}) {
+  const router = useRouter();
+  const [busy, setBusy] = useState(false);
+  const [feedback, setFeedback] = useState<Feedback>(null);
+
+  async function save(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const data = new FormData(event.currentTarget);
+    const quantity = Number(data.get("quantity"));
+    if (!Number.isFinite(quantity) || quantity < 0) {
+      setFeedback({ tone: "error", text: "Indica una existencia válida, igual o mayor que cero." });
+      return;
+    }
+    setBusy(true); setFeedback(null);
+    const { error } = await createClient().rpc("set_material_stock", {
+      p_material_id: material.id,
+      p_quantity: quantity,
+      p_note: sentenceCase(data.get("note")) || null,
+    });
+    setBusy(false);
+    if (error) return setFeedback({ tone: "error", text: "No fue posible actualizar la existencia. Revisa los datos e inténtalo nuevamente." });
+    router.refresh(); onDone();
+  }
+
+  return (
+    <tr className="catalog-panel-row">
+      <td colSpan={columns} data-label="">
+        <div className="catalog-panel inventory-action-panel">
+          <div><strong>Ajustar existencia · {material.name}</strong><p className="help">Saldo actual: {Number(currentQuantity).toFixed(2)} {material.unit}. El nuevo saldo queda registrado en la bitácora de bodega.</p></div>
+          <form className="form" onSubmit={save}>
+            <div className="form-row">
+              <label className="field">Existencia física final ({material.unit})<input required name="quantity" type="number" min="0" step="0.01" defaultValue={currentQuantity} inputMode="decimal" /></label>
+              <label className="field">Motivo del ajuste<input name="note" required maxLength={300} placeholder="Ej. Conteo semanal de bodega" /></label>
+            </div>
+            {feedback && <p className={`msg ${feedback.tone}`} role="status">{feedback.text}</p>}
+            <div className="actions"><button className="btn small" disabled={busy}>{busy ? "Guardando…" : "Guardar existencia"}</button><button type="button" className="btn ghost small" disabled={busy} onClick={onDone}>Cancelar</button></div>
+          </form>
+        </div>
+      </td>
+    </tr>
+  );
+}
+
 export async function deleteCatalogRecord(type: "clients" | "materials", id: string, label: string) {
   if (!confirm(`¿Eliminar este ${label}? Solo será posible si no está asociado a órdenes existentes.`)) return { ok: true, deleted: false, message: "" };
   const { error } = await createClient().from(type).delete().eq("id", id);

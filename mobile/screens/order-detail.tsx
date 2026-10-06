@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Alert, FlatList, Image, Linking, Modal, Pressable, RefreshControl, ScrollView, StatusBar, StyleSheet, Text, View } from "react-native";
+import { Alert, FlatList, Image, Linking, Modal, Platform, Pressable, RefreshControl, ScrollView, StatusBar, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import * as ImagePicker from "expo-image-picker";
 import * as Location from "expo-location";
@@ -7,6 +7,7 @@ import SignatureCanvas, { type SignatureViewRef } from "react-native-signature-c
 import { supabase } from "../lib/supabase";
 import { C, Role, STATUS_LABEL, Status } from "../theme";
 import { errorMessage, formatDateTime, sentenceCase } from "../lib/format";
+import { withTimeout } from "../lib/with-timeout";
 import type { Material, Order } from "../types";
 import { Badge, Button, Card, Check, Input, Loading, PriorityTag, SectionTitle, ToastBar, useToast } from "../components/ui";
 import { SelectField, SelectSheet } from "../components/select-sheet";
@@ -18,6 +19,7 @@ type Signature = { signer_name: string; signed_at: string };
 type HistoryEntry = { id: string; created_at: string; from_status: Status | null; to_status: Status; note: string | null };
 type TimelineEvent = { id: string; created_at: string; event_type: string; description: string; actor_name: string | null };
 type PredictionEstimate = { material_id: string; estimated_quantity: number; recommended_quantity: number; minimum_quantity: number; unit: string; unit_cost: number; estimated_cost: number; sample_size: number };
+type ClientMaterialAssignment = { id: string; assigned_quantity: number; consumed_quantity: number; returned_quantity: number; materials: Material | null };
 
 type Expediente = {
   locations: LocationRecord[];
@@ -38,19 +40,22 @@ export function OrderDetail({ order, role, onClose, onChanged, onEdit }: {
   const [file, setFile] = useState<Expediente>(EMPTY);
   const [history, setHistory] = useState<HistoryEntry[]>([]);
   const [timeline, setTimeline] = useState<TimelineEvent[]>([]);
-  const [materials, setMaterials] = useState<Material[]>([]);
+  const [clientAssignments, setClientAssignments] = useState<ClientMaterialAssignment[]>([]);
+  const [assignmentsLoading, setAssignmentsLoading] = useState(true);
+  const [assignmentsError, setAssignmentsError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [busy, setBusy] = useState(false);
   const [isResponsible, setIsResponsible] = useState(false);
 
-  const [material, setMaterial] = useState<Material | null>(null);
+  const [material, setMaterial] = useState<ClientMaterialAssignment | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [quantity, setQuantity] = useState("");
   const [note, setNote] = useState("");
   const [signer, setSigner] = useState("");
   const signature = useRef<SignatureViewRef>(null);
   const { toast, show, hide } = useToast();
+  const [feedbackStep, setFeedbackStep] = useState<"gps" | "materials" | null>(null);
 
   /** El expediente se lee del servidor: los pasos ya no se infieren solo del estado. */
   const load = useCallback(async (refresh = false) => {
@@ -81,11 +86,19 @@ export function OrderDetail({ order, role, onClose, onChanged, onEdit }: {
   useEffect(() => { load(); }, [load]);
   useEffect(() => { supabase.auth.getUser().then(({ data }) => setIsResponsible(data.user?.id === order.assigned_technician_id)); }, [order.assigned_technician_id]);
 
-  useEffect(() => {
+  const loadAssignments = useCallback(async () => {
     if (!technician) return;
-    supabase.from("materials").select("id,sku,name,unit,unit_cost,minimum_quantity").eq("is_active", true).order("name")
-      .then(({ data, error }) => error ? show("error", errorMessage(error, "No se cargó el catálogo de materiales. Inténtalo nuevamente.")) : setMaterials(data ?? []));
-  }, [technician, show]);
+    setAssignmentsLoading(true);
+    setAssignmentsError(null);
+    setMaterial(null);
+    const { data, error } = await supabase.from("client_material_assignments")
+      .select("id,assigned_quantity,consumed_quantity,returned_quantity,materials(id,sku,name,unit,unit_cost,minimum_quantity)")
+      .eq("client_id", order.client_id).order("assigned_at");
+    if (error) setAssignmentsError(errorMessage(error, "No se cargaron los materiales asignados al cliente."));
+    else setClientAssignments((data ?? []) as unknown as ClientMaterialAssignment[]);
+    setAssignmentsLoading(false);
+  }, [technician, order.client_id]);
+  useEffect(() => { void loadAssignments(); }, [loadAssignments]);
 
   const hasStart = file.locations.some((item) => item.record_type === "inicio");
   const hasEnd = file.locations.some((item) => item.record_type === "cierre");
@@ -120,11 +133,12 @@ export function OrderDetail({ order, role, onClose, onChanged, onEdit }: {
   }
 
   async function registerLocation(type: "inicio" | "cierre") {
+    setFeedbackStep("gps");
     setBusy(true);
     try {
-      const permission = await Location.requestForegroundPermissionsAsync();
+      const permission = await withTimeout(Location.requestForegroundPermissionsAsync(), 20000, "Autoriza el acceso a la ubicación y vuelve a intentarlo.");
       if (permission.status !== "granted") throw new Error("Autoriza el acceso a la ubicación para registrar tu presencia en el sitio.");
-      const point = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
+      const point = await withTimeout(Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High }), 20000, "El GPS no respondió en 20 segundos. Revisa la ubicación del dispositivo y vuelve a intentarlo; no se registró ninguna llegada o salida.");
       const { error } = await supabase.rpc("register_field_location", {
         order_id: order.id,
         record_type: type,
@@ -139,33 +153,32 @@ export function OrderDetail({ order, role, onClose, onChanged, onEdit }: {
       await load(true);
       onChanged();
     } catch (error) {
-      show("error", errorMessage(error, "No se pudo obtener la ubicación. Revisa que el GPS esté encendido."));
+      show("error", errorMessage(error, "No se pudo obtener la ubicación. Revisa que el GPS esté encendido."), { persist: true });
     } finally {
       setBusy(false);
     }
   }
 
   async function addMaterial() {
+    setFeedbackStep("materials");
     const value = Number(quantity.replace(",", "."));
-    if (!material || !Number.isFinite(value) || value <= 0) {
+    if (!material?.materials || !Number.isFinite(value) || value <= 0) {
       return show("error", "Elige un material e ingresa una cantidad mayor que cero.");
     }
+    const available = Number(material.assigned_quantity) - Number(material.consumed_quantity) - Number(material.returned_quantity);
+    if (value > available) return show("error", `La cantidad supera el saldo asignado al cliente (${available.toFixed(2)} ${material.materials.unit}).`);
     setBusy(true);
     try {
-      const actor = await currentUser();
-      const { error } = await supabase.from("work_order_materials").insert({
-        work_order_id: order.id,
-        material_id: material.id,
-        quantity: value,
-        unit: material.unit,
-        unit_cost: material.unit_cost,
-        note: sentenceCase(note) || null,
-        created_by: actor.id,
+      const { error } = await supabase.rpc("consume_client_material", {
+        p_work_order_id: order.id,
+        p_assignment_id: material.id,
+        p_quantity: value,
+        p_note: sentenceCase(note) || null,
       });
       if (error) throw error;
-      show("success", `${material.name} agregado al consumo de la orden.`);
+      show("success", `${material.materials.name} agregado al consumo de la orden.`);
       setMaterial(null); setQuantity(""); setNote("");
-      await load(true);
+      await Promise.all([load(true), loadAssignments()]);
     } catch (error) {
       show("error", errorMessage(error, "No fue posible guardar el material."));
     } finally {
@@ -174,6 +187,7 @@ export function OrderDetail({ order, role, onClose, onChanged, onEdit }: {
   }
 
   function chooseEvidenceSource() {
+    setFeedbackStep(null);
     Alert.alert("Agregar evidencia", "Elige cómo deseas adjuntar la fotografía.", [
       { text: "Cancelar", style: "cancel" },
       { text: "Galería", onPress: () => addEvidence("library") },
@@ -219,6 +233,7 @@ export function OrderDetail({ order, role, onClose, onChanged, onEdit }: {
   }
 
   async function saveSignature(dataUrl: string) {
+    setFeedbackStep(null);
     if (!signer.trim()) return show("error", "Escribe el nombre de quien recibe el servicio.");
     setBusy(true);
     try {
@@ -262,6 +277,7 @@ export function OrderDetail({ order, role, onClose, onChanged, onEdit }: {
   }
 
   async function closeOrder() {
+    setFeedbackStep(null);
     setBusy(true);
     try {
       const { error } = await supabase.rpc("close_work_order", { order_id: order.id, closure_note: null });
@@ -278,7 +294,9 @@ export function OrderDetail({ order, role, onClose, onChanged, onEdit }: {
   }
 
   const canStart = technician && isResponsible && status === "asignada" && !hasStart;
-  const canWork = technician && status === "en_proceso";
+  const canWork = technician && status === "en_proceso" && hasStart;
+  const availableAssignments = clientAssignments.filter((item) => item.materials && Number(item.assigned_quantity) > Number(item.consumed_quantity) + Number(item.returned_quantity));
+  const canSelectMaterial = canWork && !busy && !assignmentsLoading && !assignmentsError && availableAssignments.length > 0;
   const canSign = technician && isResponsible && status === "pendiente_de_cierre" && !file.signature;
   const canClose = manager && status === "pendiente_de_cierre";
   const canEditOrder = manager && status !== "cerrada";
@@ -305,7 +323,7 @@ export function OrderDetail({ order, role, onClose, onChanged, onEdit }: {
 
         <ScrollView
           contentContainerStyle={detail.body}
-          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => load(true)} colors={[C.action]} tintColor={C.action} />}
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { void load(true); void loadAssignments(); }} colors={[C.action]} tintColor={C.action} />}
         >
           <View style={detail.hero}>
             <Text style={detail.eyebrow}>{technician ? "ORDEN DE SERVICIO" : "SEGUIMIENTO DE ORDEN"}</Text>
@@ -328,7 +346,7 @@ export function OrderDetail({ order, role, onClose, onChanged, onEdit }: {
 
             <Text style={detail.description}>{order.description}</Text>
 
-            <ToastBar toast={toast} onHide={hide} />
+            {!feedbackStep && <ToastBar toast={toast} onHide={hide} />}
 
             {loading ? <Loading label="Cargando expediente…" /> : (
               <>
@@ -351,12 +369,13 @@ export function OrderDetail({ order, role, onClose, onChanged, onEdit }: {
                 {technician && (
                   <>
                     <Step number={hasStart ? "✓" : "1"} done={hasStart} title="Presencia en sitio"
-                      caption={hasStart ? "Llegada registrada. Marca la salida al terminar el trabajo." : "Registra tu llegada con la ubicación del dispositivo."}>
+                      caption={hasEnd ? "Visita finalizada. Llegada y salida registradas." : hasStart ? "Llegada registrada. Marca la salida al terminar el trabajo." : "Registra tu llegada con la ubicación del dispositivo."}>
+                      {feedbackStep === "gps" && <ToastBar toast={toast} onHide={hide} />}
                       <Button title="Registrar llegada" variant="field" busy={busy} disabled={!canStart} onPress={() => registerLocation("inicio")} />
                       {!isResponsible ? <Note text="El técnico responsable registra el GPS de inicio y entrega del proyecto. Tu jornada se registra arriba." /> : null}
                       {!canStart && !hasStart ? <Note text="Se habilita cuando coordinación te asigne la orden." /> : null}
                       {hasStart && !hasEnd ? (
-                        <Button title="Registrar salida" variant="secondary" busy={busy} disabled={status !== "en_proceso"} onPress={() => registerLocation("cierre")} />
+                        <Button title="Registrar salida" variant="secondary" busy={busy} disabled={!isResponsible || status !== "en_proceso"} onPress={() => registerLocation("cierre")} />
                       ) : null}
                       {file.locations.map((item) => (
                         <Record key={item.id}
@@ -367,16 +386,18 @@ export function OrderDetail({ order, role, onClose, onChanged, onEdit }: {
 
                     <Step number={requirements.materiales ? "✓" : "2"} done={requirements.materiales} title="Materiales utilizados"
                       caption={canWork ? "Registra el consumo real, un renglón por material." : "Se habilita mientras la orden está en proceso."}>
+                      {feedbackStep === "materials" && <ToastBar toast={toast} onHide={hide} />}
                       <SelectField
-                        value={material ? `${material.sku} · ${material.name}` : null}
+                        value={material?.materials ? `${material.materials.sku} · ${material.materials.name}` : null}
                         placeholder="Seleccionar material"
-                        disabled={!canWork}
+                        disabled={!canSelectMaterial}
                         onPress={() => setPickerOpen(true)}
                       />
-                      <Input editable={canWork} keyboardType="decimal-pad" placeholder={material ? `Cantidad en ${material.unit}` : "Cantidad"} value={quantity} onChangeText={setQuantity} accessibilityLabel="Cantidad" />
-                      <Input editable={canWork} placeholder="Observación (opcional)" value={note} onChangeText={setNote} accessibilityLabel="Observación" />
-                      {material ? <Note text={`Q ${Number(material.unit_cost).toFixed(2)} por ${material.unit} · mínimo de compra: ${material.minimum_quantity} ${material.unit}`} /> : null}
-                      <Button title="Agregar material" busy={busy} disabled={!canWork} onPress={addMaterial} />
+                      <Input editable={Boolean(canSelectMaterial && material)} keyboardType="decimal-pad" placeholder={material?.materials ? `Cantidad en ${material.materials.unit}` : "Cantidad"} value={quantity} onChangeText={setQuantity} accessibilityLabel="Cantidad" />
+                      <Input editable={Boolean(canSelectMaterial && material)} placeholder="Observación (opcional)" value={note} onChangeText={setNote} accessibilityLabel="Observación" />
+                      {material?.materials ? <Note text={`Saldo asignado: ${(Number(material.assigned_quantity) - Number(material.consumed_quantity) - Number(material.returned_quantity)).toFixed(2)} ${material.materials.unit} · Q ${Number(material.materials.unit_cost).toFixed(2)} por ${material.materials.unit}`} /> : null}
+                      <Button title="Agregar material" busy={busy} disabled={!canSelectMaterial || !material || !quantity.trim()} onPress={addMaterial} />
+                      {canWork && (assignmentsLoading ? <Note text="Cargando materiales asignados…" /> : assignmentsError ? <><Note text={assignmentsError} /><Button title="Reintentar carga de materiales" variant="secondary" onPress={() => { void loadAssignments(); }} /></> : !availableAssignments.length ? <><Note text="No hay materiales asignados con saldo para este cliente. Solicita la asignación a administración antes de registrar consumo." /><Button title="Actualizar materiales asignados" variant="secondary" disabled={busy} onPress={() => { setMaterial(null); void loadAssignments(); }} /></> : null)}
                       {!canWork && !hasStart ? <Note text="Primero registra tu llegada al sitio." /> : null}
                       {file.consumptions.map((item) => (
                         <Record key={item.id}
@@ -393,9 +414,14 @@ export function OrderDetail({ order, role, onClose, onChanged, onEdit }: {
 
                     {(canSign || file.signature) && (
                       <Step number={file.signature ? "✓" : "4"} done={Boolean(file.signature)} title="Conformidad del cliente"
-                        caption={file.signature ? "La conformidad ya fue registrada." : "Pide al cliente que firme con el dedo dentro del recuadro."}>
+                        caption={file.signature ? "La conformidad ya fue registrada." : Platform.OS === "web" ? "Captura la firma desde la aplicación instalada o el portal web." : "Pide al cliente que firme con el dedo dentro del recuadro."}>
                         {file.signature ? (
                           <Record title={file.signature.signer_name} sub={`Firmó el ${formatDateTime(file.signature.signed_at)}`} />
+                        ) : Platform.OS === "web" ? (
+                          <>
+                            <Note text="La vista de Expo en navegador no admite el componente nativo de firma. Usa la aplicación Android/iOS o abre esta orden en el portal web; no se ha registrado ninguna firma." />
+                            {process.env.EXPO_PUBLIC_WEB_APP_URL ? <Button title="Abrir orden en el portal web" variant="secondary" onPress={() => { void Linking.openURL(`${process.env.EXPO_PUBLIC_WEB_APP_URL!.replace(/\/$/, "")}/ordenes/${order.id}`).catch(() => show("error", "No se pudo abrir el portal web.")); }} /> : null}
+                          </>
                         ) : (
                           <>
                             <Input maxLength={120} placeholder="Nombre de quien recibe el servicio" value={signer} onChangeText={setSigner} accessibilityLabel="Nombre de quien recibe" />
@@ -449,7 +475,7 @@ export function OrderDetail({ order, role, onClose, onChanged, onEdit }: {
                       <Card><Text style={detail.plain}>El técnico aún no ha registrado actividad en el sitio.</Text></Card>
                     )}
 
-                    <MaterialPrediction orderId={order.id} materials={materials.length ? materials : undefined} />
+                    <MaterialPrediction orderId={order.id} />
 
                     {canClose && (
                       <Card style={{ backgroundColor: C.actionSoft, borderColor: "#c8daf0" }}>
@@ -489,10 +515,10 @@ export function OrderDetail({ order, role, onClose, onChanged, onEdit }: {
         <SelectSheet
           visible={pickerOpen}
           title="Selecciona un material"
-          options={materials.map((item) => ({ id: item.id, label: item.name, sub: `${item.sku} · ${item.unit}` }))}
+          options={availableAssignments.map((item) => ({ id: item.id, label: item.materials!.name, sub: `${item.materials!.sku} · saldo ${(Number(item.assigned_quantity) - Number(item.consumed_quantity) - Number(item.returned_quantity)).toFixed(2)} ${item.materials!.unit}` }))}
           selectedId={material?.id ?? null}
-          emptyText="El catálogo de materiales está vacío."
-          onSelect={(option) => { setMaterial(materials.find((item) => item.id === option.id) ?? null); setPickerOpen(false); }}
+          emptyText="Este cliente no tiene material asignado con saldo disponible."
+          onSelect={(option) => { setMaterial(clientAssignments.find((item) => item.id === option.id) ?? null); setPickerOpen(false); }}
           onClose={() => setPickerOpen(false)}
         />
       </SafeAreaView>
@@ -503,6 +529,9 @@ export function OrderDetail({ order, role, onClose, onChanged, onEdit }: {
 /** Carpeta de evidencias con visor a pantalla completa; el técnico ve fotos, gestión puede revisar y clasificar con IA. */
 function EvidenceGallery({ evidences, canReview, onChanged }: { evidences: Evidence[]; canReview: boolean; onChanged: () => void }) {
   const [urls, setUrls] = useState<Record<string, string>>({});
+  const [previewLoading, setPreviewLoading] = useState(true);
+  const [failedImages, setFailedImages] = useState<Record<string, boolean>>({});
+  const [previewAttempt, setPreviewAttempt] = useState(0);
   const [open, setOpen] = useState(false);
   const [index, setIndex] = useState(0);
   const [category, setCategory] = useState("");
@@ -514,14 +543,21 @@ function EvidenceGallery({ evidences, canReview, onChanged }: { evidences: Evide
   useEffect(() => {
     if (!evidences.length) return setUrls({});
     let active = true;
+    setPreviewLoading(true);
+    setFailedImages({});
     supabase.storage.from("evidences").createSignedUrls(evidences.map((item) => item.storage_path), 600).then(({ data }) => {
-      if (!active || !data) return;
+      if (!active) return;
       const map: Record<string, string> = {};
-      for (const item of data) if (item.path && item.signedUrl) map[item.path] = item.signedUrl;
+      for (const item of data ?? []) if (item.path && item.signedUrl) map[item.path] = item.signedUrl;
       setUrls(map);
+      setPreviewLoading(false);
+    }).catch(() => {
+      if (!active) return;
+      setUrls({});
+      setPreviewLoading(false);
     });
     return () => { active = false; };
-  }, [evidences]);
+  }, [evidences, previewAttempt]);
 
   if (!evidences.length) return null;
 
@@ -598,9 +634,9 @@ function EvidenceGallery({ evidences, canReview, onChanged }: { evidences: Evide
           </View>
 
           <View style={gallery.preview}>
-            {urls[selected.storage_path] ? (
-              <Image source={{ uri: urls[selected.storage_path] }} style={{ width: "100%", height: "100%" }} resizeMode="contain" />
-            ) : <Text style={gallery.previewLoading}>Cargando vista previa…</Text>}
+            {urls[selected.storage_path] && !failedImages[selected.storage_path] ? (
+              <Image source={{ uri: urls[selected.storage_path] }} style={{ width: "100%", height: "100%" }} resizeMode="contain" onError={() => setFailedImages((current) => ({ ...current, [selected.storage_path]: true }))} />
+            ) : <View style={{ padding: 20, gap: 16 }}><Text style={gallery.previewLoading}>{previewLoading ? "Cargando vista previa…" : "No se pudo cargar esta fotografía. El archivo puede no estar disponible o tu sesión no tiene acceso."}</Text>{!previewLoading && <Button title="Reintentar vista previa" variant="secondary" onPress={() => setPreviewAttempt((value) => value + 1)} />}</View>}
           </View>
 
           <Text style={gallery.meta}>{selected.final_category ?? selected.suggested_category ?? "Sin clasificar"} · {formatDateTime(selected.created_at)}</Text>

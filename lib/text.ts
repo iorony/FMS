@@ -7,10 +7,12 @@ export function sentenceCase(value: FormDataEntryValue | string | null | undefin
 
 /** Evita exponer detalles de proveedores o base de datos en la interfaz. */
 export function userErrorMessage(error: unknown, fallback: string) {
-  const message = error instanceof Error ? error.message.trim() : "";
+  const raw = error instanceof Error ? error.message : typeof error === "object" && error !== null && "message" in error ? error.message : "";
+  const message = typeof raw === "string" ? raw.trim() : "";
   const safePrefixes = [
     "Tu sesión", "No autorizado", "No tienes permiso", "La orden", "Primero ",
     "Escribe ", "No hay ", "Este dispositivo", "Autoriza ", "Se requiere ",
+    "Existencia insuficiente:", "La cantidad ", "La devolución ", "La existencia ", "El material ", "El cliente ",
   ];
   return safePrefixes.some((prefix) => message.startsWith(prefix)) ? message : fallback;
 }

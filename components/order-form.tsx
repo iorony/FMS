@@ -151,7 +151,7 @@ export function OrderForm({ clients, technicians }: { clients: Client[]; technic
 
       <div className="actions">
         <button className="btn" disabled={sending}>{sending ? "Creando…" : technician ? "Crear y asignar orden" : "Guardar borrador"}</button>
-        <button type="button" className="btn ghost" onClick={() => router.back()}>Cancelar</button>
+        <button type="button" className="btn ghost" disabled={sending} onClick={() => router.push("/ordenes")}>Descartar borrador</button>
       </div>
     </form>
   );

@@ -26,7 +26,8 @@
 1. Haz una copia de respaldo antes de tocar el esquema.
 2. Ejecuta `supabase migration list` y compáralo con los archivos de `supabase/migrations`.
 3. Si el proyecto ya utilizaba las migraciones antiguas de agosto, enlázalo y ejecuta `supabase db push`; no ejecutes de nuevo manualmente la migración inicial consolidada sobre una base que ya contiene las tablas.
-4. Después del despliegue, valida OP-01, OP-05 y OP-08 de `docs/MATRIZ_PRUEBAS_OPERATIVAS.md`.
+4. La migración `20261005_000008_material_inventory_and_client_assignments.sql` crea los saldos de bodega en cero. Registra el inventario físico inicial desde **Materiales** antes de asignar o consumir materiales.
+5. Después del despliegue, valida OP-01, OP-05, OP-08 y OP-11 a OP-14 de `docs/MATRIZ_PRUEBAS_OPERATIVAS.md`.
 
 ## Verificación posterior
 
@@ -39,7 +40,8 @@ where table_schema = 'public'
   and table_name in (
     'profiles', 'work_orders', 'location_records', 'evidences',
     'customer_signatures', 'work_order_timeline_events',
-    'daily_attendance_records', 'material_predictions'
+    'daily_attendance_records', 'material_predictions', 'material_inventory',
+    'material_stock_movements', 'client_material_assignments'
   )
 order by table_name;
 ```

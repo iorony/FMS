@@ -70,10 +70,10 @@ export type Toast = { tone: "success" | "error" | "info"; text: string } | null;
 export function useToast() {
   const [toast, setToast] = useState<Toast>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const show = useCallback((tone: "success" | "error" | "info", text: string) => {
+  const show = useCallback((tone: "success" | "error" | "info", text: string, options?: { persist?: boolean }) => {
     if (timer.current) clearTimeout(timer.current);
     setToast({ tone, text });
-    timer.current = setTimeout(() => setToast(null), tone === "error" ? 7000 : 4000);
+    timer.current = options?.persist ? null : setTimeout(() => setToast(null), tone === "error" ? 7000 : 4000);
   }, []);
   return { toast, show, hide: () => setToast(null) };
 }

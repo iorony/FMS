@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { AppShell } from "@/components/app-shell";
 import { CatalogForm } from "@/components/catalog-form";
+import { CreationPanel } from "@/components/creation-panel";
 import { CatalogTable } from "@/components/catalog-table";
 import { createClient } from "@/lib/supabase/server";
 
@@ -24,10 +25,7 @@ export default async function ClientsPage() {
     >
       <div className="stack">
         {canManage && (
-          <section className="panel">
-            <div className="panel-head"><h2>Registrar cliente</h2></div>
-            <div className="panel-body"><CatalogForm type="clients" /></div>
-          </section>
+          <CreationPanel title="Registrar cliente"><CatalogForm type="clients" /></CreationPanel>
         )}
 
         <section className="panel">
