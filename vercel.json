@@ -1,5 +1,8 @@
 {
   "crons": [
-    { "path": "/api/ai/process-evidence-jobs", "schedule": "0 12 * *" }
+    {
+      "path": "/api/ai/process-evidence-jobs",
+      "schedule": "0 12 * * *"
+    }
   ]
 }
